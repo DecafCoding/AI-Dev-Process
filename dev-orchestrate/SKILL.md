@@ -34,7 +34,7 @@ An argument is optional:
 
 ## Step 0 — Preflight (abort early, not after hours of work)
 
-Verify, in order. Checks 1–4 are environment checks you cannot fix: if one fails, STOP and report — do not start any phase. Checks 5–8 carry their own decide-or-stop rules; follow the rule stated on the check rather than stopping by default.
+Verify, in order. Checks 1–4 are environment checks you cannot fix: if one fails, STOP and report — do not start any phase. Checks 5–9 carry their own decide-or-stop rules; follow the rule stated on the check rather than stopping by default.
 
 1. `git rev-parse --show-toplevel` succeeds and `git remote get-url origin` names the expected repo. Note the working-tree state (uncommitted doc edits are acceptable; they will ride into the next phase branch).
 2. Detect the default branch (`git remote show origin | sed -n '/HEAD branch/s/.*: //p'`); `git checkout <default-branch> && git pull` succeeds and `git log --oneline -3` looks sane. Refer to it as `<default-branch>` below.
@@ -85,6 +85,12 @@ On a confirmed continue, log one `DECISION:` line per failed row (`DECISION: use
    - **A variable is missing for a service that no phase in this run calls** — go on. Log `DECISION: <service> keys missing, out of scope for phases <range>`.
    - **A variable is missing for a service a phase in this run calls** — print what it costs, in these words: "That service is built against invented answers. Its tests prove nothing about the real service, and the first real call happens after the build." Then ask the user once whether to continue. Wait for an explicit yes; anything else is a STOP, and no answer is a stop. A variable set after this session started is not visible to it — if the user says they have just set it, tell them to start a new session and re-run.
    - On a confirmed continue, log `DECISION: user confirmed continue with <service> not proven` and repeat it in the Final Report.
+9. **Open gates.** A gate is an acceptance criterion that only the user can prove and that a later phase depends on. For every phase already `complete` in `docs/progress.html`, read the Acceptance Criteria in its phase doc and list each `<li>` with `data-gate="true"` that is still `data-checked="false"`.
+   - **None** — go on. Ask nothing.
+   - **One or more** — an earlier run stopped here, or a phase was built without its gate being answered. For each one, print the phase, the criterion, and the user's steps from the `GATE:` line in that phase doc's Notes. Then ask once whether the user did the steps and the gate passed. Ask one gate at a time.
+   - **An explicit yes** — set that `<li>` to `data-checked="true"`, commit the phase doc as `docs:` on `<default-branch>`, push, and log `DECISION: user approved gate in phase <N> — <criterion>`. Never tick a gate on any other evidence — not green tests, not a sub-agent's report, not your own reading of the code.
+   - **The user says it failed** — STOP. Later phases build on that result. Report what the user saw, and name the smallest next action: a `fix/` branch for a defect, or `dev-architecture` in amendment mode (or `dev-ui-update`, for a look) when the design must change.
+   - **No answer, or anything else** — STOP. No answer is a stop.
 
 ## The phase loop
 
@@ -156,6 +162,9 @@ Handle each of these on sight; never treat one as a generic failure.
 | `BREAK-UNFIXED:` | fix sub-agent | Not a stop. Leave the fix branch and its PR open, log a `DECISION:`, continue. Never retry. |
 | `SUSPECT:` | breaker | Informational. Report it; act on none. |
 | `PROVEN:` `UNPROVEN:` | planner / executor | Not a failure and not a stop. Copy each one verbatim into the Final Report's Not proven section. An `UNPROVEN:` line for a service whose variables preflight check 8 showed as `SET` is a defect in the phase — say so beside the line. |
+| `OPEN:` | executor | An acceptance criterion the build did not prove. Not a failure and not a stop. Copy it verbatim into the per-phase summary and the Final Report's Not proven section. |
+| `GATE:` | planner / executor | A criterion only the user can prove, that a later phase depends on. Run Step 6. An open gate is a STOP before the next phase starts. |
+| `USER-PROOF:` `STAND-IN:` | planner | Informational. Copy each one verbatim into the Final Report's Not proven section. |
 | `MALFORMED-PHASE-DOC` | planner / progress | The phase doc is unparseable, so re-running the same command cannot help — and the planner will refuse to overwrite it. Break the deadlock in one move: rename the file to `<name>.malformed-<short-sha>.html` (never delete it), then relaunch the planner with `REPLAN-AUTHORIZED` so it plans the phase as unplanned. Do this **once per phase**; a second `MALFORMED-PHASE-DOC` for the same phase is a STOP. Log `DECISION: set aside malformed phase doc <old path> → <new path>`. |
 | `ALREADY-PLANNED: <path>` | planner | The phase already has a doc, so it was never `not-planned`. Re-read `docs/progress.html`; if it disagrees with what is on disk, run `/dev-create-progress` to resync (this is a repair, not a ladder attempt), then re-select. Never order the planner to overwrite the doc. |
 | `NEEDS-PLAN: phase <N>` | executor | Not a failure — the phase was executed before it was planned. Go back to Step 2 and plan phase `<N>`, then re-run Step 3. This does not consume a plan-gate attempt. |
@@ -169,7 +178,7 @@ Before launching, record `git rev-parse HEAD` on `<default-branch>` as `<base-sh
 
 Launch a sub-agent with this brief:
 
-> Run `/dev-execute <N>` for this project from the repo root. Keys for outside services are in environment variables: read them by name, never print, log or commit a value, and return a `PROVEN:` or `UNPROVEN:` line for every outside service this phase calls. This is an unattended run: do NOT ask the user questions; where the plan leaves room, choose the option most consistent with `CLAUDE.md` and the phase doc, and record the deviation in your Final Report. Follow the skill exactly, including its final step (push, PR, squash-merge with **no** `--delete-branch`, sync the default branch, delete the *local* branch only, re-run build + tests on the merged default branch). The remote branch on `origin` must survive the merge — never delete it. If the squash-merge conflicts and every conflicted path is under `docs/` or is `README.md`, resolve it per Step 9.3 and retry once rather than stopping; a conflict in any source, test, config or build file is a stop. Return your full Final Report, including every `MERGE-CONFLICT-RESOLVED:` line.
+> Run `/dev-execute <N>` for this project from the repo root. Keys for outside services are in environment variables: read them by name, never print, log or commit a value, and return a `PROVEN:` or `UNPROVEN:` line for every outside service this phase calls. Tick an acceptance criterion only when its own named proof ran and passed — never on a stand-in check, and never a `data-proof="user"` criterion — and return an `OPEN:` line for every criterion left open and the `GATE:` line for every open gate. This is an unattended run: do NOT ask the user questions; where the plan leaves room, choose the option most consistent with `CLAUDE.md` and the phase doc, and record the deviation in your Final Report. Follow the skill exactly, including its final step (push, PR, squash-merge with **no** `--delete-branch`, sync the default branch, delete the *local* branch only, re-run build + tests on the merged default branch). The remote branch on `origin` must survive the merge — never delete it. If the squash-merge conflicts and every conflicted path is under `docs/` or is `README.md`, resolve it per Step 9.3 and retry once rather than stopping; a conflict in any source, test, config or build file is a stop. Return your full Final Report, including every `MERGE-CONFLICT-RESOLVED:` line.
 
 ### 4. Verify (the hard gate — run these commands yourself)
 
@@ -182,7 +191,7 @@ After the execute sub-agent returns:
 5. The project's build + test commands from `CLAUDE.md` exit 0 on `<default-branch>`.
 6. `docs/progress.html` on `<default-branch>` shows phase `<N>` `data-status="complete"` with every task `done` or `skipped`.
 
-All six pass → go to Step 5. After Step 5, post a short per-phase summary (phase, tasks, PR URL, test results, deviations, every `CONTRACT-STRAIN:` line this phase's doc holds, and every `BREAK:`, `DESIGN-BREAK:` and `BREAK-UNFIXED:` line from Step 5, verbatim) so the user can follow along, then loop to Step 1.
+All six pass → go to Step 5, then Step 6. After Step 6, post a short per-phase summary (phase, tasks, PR URL, test results, deviations, every `CONTRACT-STRAIN:` line this phase's doc holds, every `BREAK:`, `DESIGN-BREAK:` and `BREAK-UNFIXED:` line from Step 5, and every `OPEN:` and `GATE:` line from Step 6, verbatim) so the user can follow along, then loop to Step 1 unless Step 6 stopped the run. In the summary, call a phase **built** when it has an open criterion and **proven** when it has none. Never call a phase with an open criterion complete.
 
 **A failed check is not automatically a stop.** Checks 3 and 5 are the load-bearing ones — the PR really merged, and the merged default branch really builds. The rest are bookkeeping you may repair yourself, once each, under the one-repair rule:
 
@@ -230,6 +239,20 @@ Run this step once per phase, after Verify passes. It is bounded on purpose: one
 
 **`BREAK-UNFIXED` is not a stop.** `<default-branch>` is still green — it simply does not contain the fix. Leave `fix/phase-<N>-breaks` on `origin` with its PR open and unmerged, make sure you are back on a clean `<default-branch>`, log `DECISION: phase <N> break left unfixed on fix/phase-<N>-breaks — <reason>`, and continue to the next phase. Never retry the fix, and never run a second breaker over the fix.
 
+### 6. Gate (what the build could not prove)
+
+A phase with every task done is **built**. It is **proven** only when every acceptance criterion in its phase doc is `data-checked="true"`. Green checks do not close that difference, and `data-status="complete"` in `docs/progress.html` records built, not proven.
+
+After Step 5, read the Acceptance Criteria in the phase doc on `<default-branch>` yourself. Do not rely on the executor's report alone.
+
+1. **Undo a tick the build could not have earned.** A criterion with `data-proof="user"` that is `data-checked="true"` was ticked by an agent. Set it back to `false`, commit as `docs:`, and log `DECISION: reopened user criterion in phase <N> — <criterion>`. The only place a `user` criterion is ticked is preflight check 9, on the user's explicit yes.
+2. **List every criterion still `data-checked="false"`.** Each one needs an `OPEN:` line. If the executor returned none for it, write it yourself: `OPEN: phase <N> — <criterion> — <proof kind> — no proof reported`.
+3. **No open criterion carries `data-gate="true"`** — not a stop. Carry the `OPEN:` lines forward and continue.
+4. **An open criterion carries `data-gate="true"`, and this run has no further phase to start** — not a stop. The gate goes in the Final Report as work the user owes.
+5. **An open criterion carries `data-gate="true"`, and another phase would start** — STOP before that phase. The repo is clean and the phase is merged; nothing is lost. Report: the criterion, the user's steps from the `GATE:` line verbatim, what the user must see, and how to resume — do the steps, then start the run again; preflight check 9 asks for the result.
+
+A phase doc with no `data-proof` attributes was planned before this step existed. Treat every unticked criterion as an `OPEN:` line and stop on none of them.
+
 ## Stop rules (no exceptions)
 
 These are the only stops. Everything else is a decision — see "Decide, don't stop" above.
@@ -247,6 +270,8 @@ These are the only stops. Everything else is a decision — see "Decide, don't s
 - **Readiness review row 1 or row 5 fails** — no PRD, or no `docs/progress.html` after the one allowed `/dev-create-progress` repair → STOP. These two are never confirmable.
 - **A readiness review row 2, 3 or 4 fails and the user does not explicitly confirm** → STOP. No answer is a stop.
 - **Preflight check 8 finds a missing key variable for a service this run calls, and the user does not explicitly confirm** → STOP. No answer is a stop.
+- **A gate is open and another phase would start** (Step 6) → STOP before that phase and give the user's steps. An open criterion that is not a gate is never a stop.
+- **Preflight check 9 finds an open gate and the user does not explicitly say it passed** → STOP. No answer is a stop, and a failed gate is a stop.
 - **Preflight environment failures** — no repo, wrong origin, `gh` not authenticated, missing toolchain → STOP. You cannot fix the user's machine.
 - **A git failure you cannot attribute to doc edits** — network, diverged history, auth, or a pull that fails after one retry → STOP.
 - **A sub-agent reports that repairing `docs/progress.html` would lose a `done` / `skipped` mark or a blocker** → STOP and report exactly which marks were at risk. Completed work is never traded for a clean run.
@@ -256,11 +281,11 @@ When you stop early, report: which phase, which gate, the exact failing output, 
 
 ## Final report
 
-Summarize: the readiness review table exactly as it was printed at preflight, phases completed this run (one line each with PR URL), final test results, what remains (phases left, or "all complete"), and — when the build is done — what's left for the user's final-touches pass.
+Summarize: the readiness review table exactly as it was printed at preflight, phases built this run (one line each with PR URL, marked proven or built — see Not proven), final test results, what remains (phases left, or "all complete"), and — when the build is done — what's left for the user's final-touches pass.
 
 Include a **Contract strain** section, placed before Decisions: every `CONTRACT-STRAIN:` line from every phase doc, grouped by contract, with the phase number beside each. Write "none" when there are none. This is the list the user reads to judge whether a shared contract still holds, so it stands on its own and is never folded into the Decisions list.
 
-Include a **Not proven** section, placed first among these sections: the key table from preflight check 8 (names and `SET` / `MISSING` only), then every outside service with its `PROVEN:` or `UNPROVEN:` line. A service with neither line was never proven — list it as `UNPROVEN`. This section tells the user which parts of a green build have never met the real world, so it is never omitted and never summarized.
+Include a **Not proven** section, placed first among these sections: the key table from preflight check 8 (names and `SET` / `MISSING` only), then every outside service with its `PROVEN:` or `UNPROVEN:` line. A service with neither line was never proven — list it as `UNPROVEN`. Then, for each phase, state **proven** or **built**, and for a built phase list every `OPEN:`, `GATE:`, `USER-PROOF:` and `STAND-IN:` line verbatim, with the user's steps beside each criterion only the user can prove. This section tells the user which parts of a green build have never met the real world, so it is never omitted and never summarized.
 
 Include a **Breaks** section, placed after Contract strain: for each phase, every `BREAK:` line with its fix PR URL, every `BREAK-UNFIXED:` line with the open PR URL, and every `DESIGN-BREAK:` and `SUSPECT:` line, all verbatim. Write "none" for a phase with none. `DESIGN-BREAK:` and `BREAK-UNFIXED:` lines are work the user still owes — say so in "what remains".
 

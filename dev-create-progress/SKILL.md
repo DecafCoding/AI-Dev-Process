@@ -155,7 +155,7 @@ The routine's edits are in-place attribute/blockquote changes (`data-status="tod
 <ul>
   <li><code>not-started</code> — phase doc exists, no tasks done yet</li>
   <li><code>in-progress</code> — at least one task done, others outstanding</li>
-  <li><code>complete</code> — every task in the phase is <code>done</code></li>
+  <li><code>complete</code> — every task in the phase is <code>done</code>. This means built. A criterion can still be open; the phase doc's Acceptance Criteria show which are proven.</li>
   <li><code>not-planned</code> — phase listed in PRD but has no phase doc; the routine plans it by running <code>/dev-plan-phase &lt;N&gt;</code> before executing it</li>
 </ul>
 

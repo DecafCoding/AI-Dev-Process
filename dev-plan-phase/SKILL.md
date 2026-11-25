@@ -308,11 +308,11 @@ Fill the `<body>` with the following, using the required shapes above. The HTML 
 
 10. **`<h2>Validation Commands</h2>`** — Levels 1–5 as `<h3>` subsections with `<pre><code>` command blocks (see "Validation Commands" detail below).
 
-11. **`<h2>Acceptance Criteria</h2>`** — a `<ul class="checklist">` of specific, measurable criteria (all `data-checked="false"` at authoring time).
+11. **`<h2>Acceptance Criteria</h2>`** — a `<ul class="checklist">` of specific, measurable criteria (all `data-checked="false"` at authoring time). Every `<li>` carries `data-proof`, and a gate also carries `data-gate="true"` — see "Acceptance Proof" below.
 
 12. **`<h2>Completion Checklist</h2>`** — a `<ul class="checklist">` mirroring the per-level validation.
 
-13. **`<h2>Notes</h2>`** — design decisions, trade-offs, and any assumptions made when ambiguities were resolved with defaults rather than user clarification. Notes always carry three line types, each on its own line so later phases and `dev-orchestrate` can find them by prefix: `FORWARD:` (Step 1), `PROMOTION:` (Step 2) and `CONTRACT-STRAIN:` (Step 4). A phase that calls an outside service it could not prove also carries `UNPROVEN:` lines (Test Scope).
+13. **`<h2>Notes</h2>`** — design decisions, trade-offs, and any assumptions made when ambiguities were resolved with defaults rather than user clarification. Notes always carry three line types, each on its own line so later phases and `dev-orchestrate` can find them by prefix: `FORWARD:` (Step 1), `PROMOTION:` (Step 2) and `CONTRACT-STRAIN:` (Step 4). A phase that calls an outside service it could not prove also carries `UNPROVEN:` lines (Test Scope). A phase with a criterion the build cannot prove also carries `USER-PROOF:`, `GATE:` and `STAND-IN:` lines (Acceptance Proof).
 
 ### Implementation Plan rules
 
@@ -413,6 +413,30 @@ Where the architecture has no `outside-services` decision, apply the same rules 
 
 **Keep test code out of production.** Fake services, saved answers and test clocks live in the test folders. Do not plan an environment variable or mode that makes production code behave differently under test. Do not plan a check tool that runs outside the project's one check command.
 
+### Acceptance Proof (mandatory)
+
+A green check proves only what the check tests. When the build cannot prove a criterion, the easy move is to test something nearby and tick the box. That is how a phase is reported complete while its criteria are false. Plan the proof of each criterion, and say plainly which ones the build cannot prove.
+
+**Authority.** The `proof-of-done` decision in `docs/architecture.html` gives each done criterion its proof kind, its proof and whether it is a gate. Copy those. Where the decision is absent, or a criterion of this phase is not in its table, sort the criterion yourself by the kinds below and record `ASSUMPTION: no proof-of-done entry for <criterion> — proof kind chosen by dev-plan-phase`. Never mark a gate on your own: a gate stops the run, and that is the user's decision.
+
+**Every acceptance criterion carries its proof kind:**
+
+```html
+<ul class="checklist">
+  <li data-checked="false" data-proof="build">criterion text (proof: Task 4 VALIDATE)</li>
+  <li data-checked="false" data-proof="target-copy">criterion text (proof: Level 4, target copy)</li>
+  <li data-checked="false" data-proof="user" data-gate="true">criterion text (proof: the user — see GATE line in Notes)</li>
+</ul>
+```
+
+- **`build`** — a planned command proves the criterion itself on the build machine. Name it in the criterion text: the task VALIDATE or the Validation Commands level.
+- **`target-copy`** — the criterion is only true on a machine equal to the deployment target. Plan one Level 4 command that starts the architecture's target copy, runs the check inside it, and tears it down. If the architecture names no target copy, the criterion is `user`.
+- **`user`** — no command proves it. Plan no check that ticks it. Write one line in Notes: `USER-PROOF: <criterion> — <the steps the user does> — <what the user must see>`. When the architecture marks the criterion as a gate, add `data-gate="true"` and start the line with `GATE:` in place of `USER-PROOF:`, and end it with the later phase that depends on it.
+
+**A stand-in check never ticks a criterion.** A stand-in check tests something near the criterion: a script's text in place of running the script, a fake device in place of the real one, a rendered page's data in place of how the page looks. It is allowed as an early warning, on three conditions: the criterion keeps its true proof kind; the plan does not name the stand-in as that criterion's proof; and Notes carry `STAND-IN: <criterion> — <the check used> — <what it does not prove>`.
+
+**Do not reword a criterion to match what you can check.** The criterion text comes from the PRD and the `proof-of-done` decision. If the phase cannot meet it, that is a `CONTRACT-STRAIN` or an `ARCHITECTURE-MISFIT`, not an edit.
+
 ### Final milestone (mandatory): Commit, push, and open PR
 
 Every plan ends with a final task that commits, pushes the branch, and opens the PR. An autonomous execution loop only ends here. Render it as the last `<h4 class="task" …>` (under a final `<h3 class="milestone">Commit, push, and open PR</h3>` if using Milestones rendering):
@@ -423,7 +447,7 @@ Every plan ends with a final task that commits, pushes the branch, and opens the
 <ul>
   <li><strong>IMPLEMENT:</strong> stage and commit uncommitted changes with a descriptive message summarizing the phase; push with <code>git push -u origin &lt;branch-name&gt;</code>; open a PR with <code>gh pr create --head &lt;branch-name&gt; --title "&lt;title&gt;" --body "&lt;body&gt;"</code> (omitting <code>--base</code> targets the repo's default branch; pass <code>--base &lt;default-branch&gt;</code> explicitly if needed).</li>
   <li><strong>PR title format:</strong> <code>Phase &lt;N&gt;: &lt;phase name&gt;</code> (e.g., <code>Phase 1: Foundation</code>) — names the phase, not any individual feature.</li>
-  <li><strong>PR body format:</strong> copy the Acceptance Criteria as a checklist with each box checked off, followed by a <code>Notes</code> section listing assumptions/trade-offs decided during execution.</li>
+  <li><strong>PR body format:</strong> copy the Acceptance Criteria as a checklist; check a box only when that criterion's own proof ran and passed, leave every other box open with its proof kind beside it, followed by a <code>Notes</code> section listing assumptions/trade-offs decided during execution.</li>
   <li><strong>GOTCHA:</strong> if <code>gh</code> is not installed/authenticated, this step fails — document installing/authenticating <code>gh</code> as a precondition at the top of the plan if it isn't part of standard tooling.</li>
   <li><span class="validate"><strong>VALIDATE:</strong></span> <code>gh pr view --json number,title,state,headRefName</code> returns the new PR with <code>"state": "OPEN"</code> and the correct <code>headRefName</code>.</li>
 </ul>
@@ -533,6 +557,13 @@ First draft your tasks as a flat list (mentally or in scratch) so you can see th
 - [ ] Hand-written test data for an outside service is marked as invented and has an `UNPROVEN:` line in Notes
 - [ ] No key value is planned into any repo file, and no planned command or test prints one
 
+### Acceptance Proof
+
+- [ ] Every acceptance criterion carries `data-proof`, and names the command or the Notes line that proves it
+- [ ] Every `user` criterion has a `USER-PROOF:` or `GATE:` line with the user's steps, and no planned check ticks it
+- [ ] `data-gate="true"` appears only where the `proof-of-done` decision marks a gate
+- [ ] Every stand-in check has a `STAND-IN:` line, and no criterion names a stand-in as its proof
+
 ### Cross-Phase Fit
 
 - [ ] Every later PRD phase was read, and Notes hold a `FORWARD:` line for each need (or `FORWARD: none` with a reason)
@@ -564,3 +595,4 @@ After creating the plan, provide:
 - Key implementation risks or considerations
 - Whether tasks are grouped under milestones or rendered flat, and why
 - Every `CONTRACT-STRAIN:` line, verbatim, and what the promotion task moves (or that there is none)
+- Every `GATE:`, `USER-PROOF:` and `STAND-IN:` line, verbatim

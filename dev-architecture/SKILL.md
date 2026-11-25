@@ -91,7 +91,7 @@ Branch order, adapted to the domain:
 7. **Shared contracts.** A shared contract is a part that two or more milestones use. Write each one in full. Then walk every in-scope feature through it. See "Shared contracts" below.
 8. **State and failure.** Persistence, concurrency, transactions, error surfaces, retry and recovery. State what a partial failure leaves behind.
 9. **Non-functional.** Scale, latency, throughput, security, privacy, cost ceiling. Give numbers.
-10. **Deployment.** Target, environments, configuration and secrets, CI. Also the test policy. See "Test policy" below.
+10. **Deployment.** Target, environments, configuration and secrets, CI. Also the test policy. See "Test policy" below. Also the proof of done. See "Proof of done" below.
 11. **Risks and reversibility.** For each decision above, state how expensive it is to undo. Give this branch full attention. Do not compress it into a closing sentence.
 
 **Order matters here.** Stack limits the workable patterns. Pattern dictates layout. Storage and boundaries decide most of state and failure. Out-of-order decisions force you to re-decide backwards.
@@ -258,6 +258,55 @@ Never ask the user to paste a key into the conversation. If the user pastes one,
 A variable set now is not visible to a session that is already open. Tell the user to open a new session before the build. `dev-orchestrate` checks each variable by name at the start of the build.
 
 The user can skip the key walk for a service. Record that service in Open questions as not proven, with the phase that first needs it.
+
+## Proof of done
+
+A build agent reports a phase as done when its checks are green. A check can be green while the done criterion is false. This occurs when the agent cannot prove the criterion and checks a nearby thing in its place. That check is a stand-in check. The proof of done states who can prove each criterion, before the build starts. Settle it in branch 10.
+
+You do the sort. Show the result as one table. Take one confirmation for all of it. Ask a separate question only for the gates, because a gate stops the build.
+
+### Sort each criterion
+
+Read the done criteria and the milestones in `docs/mvp-plan.html`. Give each done criterion one proof kind:
+
+- **`build`.** An agent can prove it on the build machine with a command.
+- **`target-copy`.** An agent can prove it only on a machine that is equal to the deployment target. Examples are an install script, a service that starts with the machine, and a file permission.
+- **`user`.** Only the user can prove it. Examples are the look of a screen, a device in a room, and an account that only the user can open.
+
+A criterion that cannot be measured has no proof kind. Ask the user for the measurable form. Record that form in the table.
+
+### The target copy
+
+Compare the build machine with the deployment target. If the operating system or the service manager is different, name a target copy. A target copy is a container or a virtual machine that is equal to the target in those points. An agent can start it with one command. State that command and the tool that it needs.
+
+If there is no target copy, each `target-copy` criterion becomes `user`. Tell the user how many criteria that moves.
+
+### Gates
+
+A gate is a `user` criterion that a later milestone depends on. The build stops at a gate and waits for the user. If the build continued and the user then rejected the result, the later work would be done again.
+
+Keep the gates few. A criterion is a gate only when both of these are true:
+
+- A later milestone builds on the result.
+- A rejection changes that later work.
+
+A `user` criterion that is not a gate does not stop the build. It stays open, and the build reports it at the end.
+
+For each `user` criterion, write the steps that the user does and what the user must see. Keep the steps short. The user must be able to do them in a few minutes.
+
+### Record it
+
+Record the table as one decision in section 9, Deployment, with `data-decision="proof-of-done"`. It has one row for each done criterion, with these columns:
+
+- **Criterion.** The measurable text.
+- **Milestone.** The milestone that delivers it.
+- **Proof kind.** One of `build`, `target-copy` or `user`.
+- **How it is proven.** The command, or the steps of the user and what the user must see.
+- **Gate.** "No", or the milestone that depends on it.
+
+State the target copy in the same decision, or state that the build machine is equal to the target.
+
+`dev-plan-phase` copies the proof kind and the gate to each acceptance criterion. `dev-execute` marks a criterion as proven only when its own proof passed. `dev-orchestrate` stops at each gate.
 
 ## How to write
 
