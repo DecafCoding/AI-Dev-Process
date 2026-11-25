@@ -1,6 +1,6 @@
 ---
 name: dev-orchestrate
-description: Run the autonomous multi-phase build loop for any project using the PRD → dev-plan-phase → dev-create-progress → dev-execute pipeline. Preflights the repo and toolchain, runs a pass/fail readiness review of the PRD, CLAUDE.md, design system, architecture and progress docs, then for each incomplete phase in docs/progress.html launches a planning sub-agent (dev-plan-phase + dev-create-progress) when the phase is unplanned and an execution sub-agent (dev-execute, which squash-merges and verifies), re-checking machine-verifiable gates between every step. Decides recoverable obstacles itself from the project docs and logs every choice, and stops hard only on user-owned or irreversible ones. Use whenever the user says to run the whole build, build all phases, run the autonomous build, orchestrate the phases, run the pipeline end to end, or resume a stopped multi-phase run.
+description: Run the autonomous multi-phase build loop for any project using the PRD → dev-plan-phase → dev-create-progress → dev-execute pipeline. Preflights the repo and toolchain, runs a pass/fail readiness review of the PRD, CLAUDE.md, design system, architecture and progress docs, then for each incomplete phase in docs/progress.html launches a planning sub-agent (dev-plan-phase + dev-create-progress) when the phase is unplanned and an execution sub-agent (dev-execute, which squash-merges and verifies), then a fresh breaker sub-agent that hunts for defects the plan never named, re-checking machine-verifiable gates between every step. Decides recoverable obstacles itself from the project docs and logs every choice, and stops hard only on user-owned or irreversible ones. Use whenever the user says to run the whole build, build all phases, run the autonomous build, orchestrate the phases, run the pipeline end to end, or resume a stopped multi-phase run.
 ---
 
 # Orchestrate an Autonomous Multi-Phase Build
@@ -144,6 +144,10 @@ Handle each of these on sight; never treat one as a generic failure.
 |---|---|---|
 | `ARCHITECTURE-MISFIT` | planner | STOP the loop on the first occurrence, no retry. Report the slugs and recommend `dev-architecture` in amendment mode. |
 | `CONTRACT-STRAIN:` | planner | Not a failure. Run the contract strain check under Step 2. The first counted line for a contract is logged and reported; the second is a STOP before the phase executes. Never ask the planner to remove the line or to plan around it. |
+| `BREAK:` | breaker | A proven defect with a failing test on `fix/phase-<N>-breaks`. Launch the one fix sub-agent (Step 5.3). |
+| `DESIGN-BREAK:` | breaker | A proven defect whose fix needs a decision the docs do not hold. Never fix it. Report it verbatim; not a stop. |
+| `BREAK-UNFIXED:` | fix sub-agent | Not a stop. Leave the fix branch and its PR open, log a `DECISION:`, continue. Never retry. |
+| `SUSPECT:` | breaker | Informational. Report it; act on none. |
 | `MALFORMED-PHASE-DOC` | planner / progress | The phase doc is unparseable, so re-running the same command cannot help — and the planner will refuse to overwrite it. Break the deadlock in one move: rename the file to `<name>.malformed-<short-sha>.html` (never delete it), then relaunch the planner with `REPLAN-AUTHORIZED` so it plans the phase as unplanned. Do this **once per phase**; a second `MALFORMED-PHASE-DOC` for the same phase is a STOP. Log `DECISION: set aside malformed phase doc <old path> → <new path>`. |
 | `ALREADY-PLANNED: <path>` | planner | The phase already has a doc, so it was never `not-planned`. Re-read `docs/progress.html`; if it disagrees with what is on disk, run `/dev-create-progress` to resync (this is a repair, not a ladder attempt), then re-select. Never order the planner to overwrite the doc. |
 | `NEEDS-PLAN: phase <N>` | executor | Not a failure — the phase was executed before it was planned. Go back to Step 2 and plan phase `<N>`, then re-run Step 3. This does not consume a plan-gate attempt. |
@@ -152,6 +156,8 @@ Handle each of these on sight; never treat one as a generic failure.
 | `DECISION:` `ASSUMPTION:` `MERGE-CONFLICT-RESOLVED:` `RENUMBERED:` `MERGED:` `DERIVED:` `DROPPED-DUPLICATE` `DUPLICATE-KEPT` | any | Informational. Copy each one verbatim into the Final Report's Decisions section. Never drop or summarize them. |
 
 ### 3. Execute
+
+Before launching, record `git rev-parse HEAD` on `<default-branch>` as `<base-sha>`. Step 5 uses it to see exactly what this phase changed.
 
 Launch a sub-agent with this brief:
 
@@ -168,7 +174,7 @@ After the execute sub-agent returns:
 5. The project's build + test commands from `CLAUDE.md` exit 0 on `<default-branch>`.
 6. `docs/progress.html` on `<default-branch>` shows phase `<N>` `data-status="complete"` with every task `done` or `skipped`.
 
-All six pass → post a short per-phase summary (phase, tasks, PR URL, test results, deviations, and every `CONTRACT-STRAIN:` line this phase's doc holds, verbatim) so the user can follow along, then loop to Step 1.
+All six pass → go to Step 5. After Step 5, post a short per-phase summary (phase, tasks, PR URL, test results, deviations, every `CONTRACT-STRAIN:` line this phase's doc holds, and every `BREAK:`, `DESIGN-BREAK:` and `BREAK-UNFIXED:` line from Step 5, verbatim) so the user can follow along, then loop to Step 1.
 
 **A failed check is not automatically a stop.** Checks 3 and 5 are the load-bearing ones — the PR really merged, and the merged default branch really builds. The rest are bookkeeping you may repair yourself, once each, under the one-repair rule:
 
@@ -178,6 +184,43 @@ All six pass → post a short per-phase summary (phase, tasks, PR URL, test resu
 - **Check 4 fails** (local branch still present) — delete the local branch yourself (`git branch -D`) *only after check 3 confirmed the PR is merged*, log it, continue. If check 3 did not pass, the branch stays. Never run `git push origin --delete`: remote phase branches are kept on purpose. If instead `git ls-remote` shows the *remote* branch is missing, the repository most likely has "Automatically delete head branches" enabled — log `DECISION: remote branch for phase <N> was auto-deleted by the repository setting` and continue, then flag the setting in the Final Report.
 - **Check 5 fails** (build/tests red on the merged default branch) — re-run once to rule out flakiness. Still red → STOP. Never fix directly on `<default-branch>`.
 - **Check 6 fails** (`progress.html` not marked complete) — this is bookkeeping the sub-agent missed, and you may repair it only within tight limits. If checks 3 and 5 passed, the work really is merged and green. Flip **only** tasks currently `todo` and carrying **no** `<blockquote class="blocker">` to `done`, then mark the phase `complete`. Leave every `skipped` mark as it is. A task still carrying a blocker is classified here exactly as in Step 1 — stale and actionable blockers are demoted and the task flipped like any other; a **user-owned** blocker means the sub-agent left work behind on purpose, so do not mark the phase complete: STOP and surface that blocker instead. Commit the repair as `docs:`, push, and log `DECISION: repaired progress.html bookkeeping for phase <N> — flipped tasks <list>`. If checks 3 or 5 failed, leave the file alone.
+
+### 5. Break (one fresh look at what the phase built)
+
+The planner named the tests and the executor wrote the code from the same plan. Their tests prove the code matches the plan. They cannot prove the plan was right, and a case the plan never named has no test at all. The breaker is a sub-agent with no memory of the build whose only job is to find such a case.
+
+Run this step once per phase, after Verify passes. It is bounded on purpose: one breaker, at most five breaks, one fix pass, no second breaker round.
+
+**5.1 Launch the breaker.** Give it the brief below and nothing else. Do **not** pass it the executor's Final Report, the planner's summary, or your own view of the phase — a reviewer handed a conclusion tends to confirm it.
+
+> You are reviewing phase `<N>` of this project with fresh eyes. You did not build it. Do not fix anything.
+>
+> Read: `CLAUDE.md`; the phase doc at `<phase doc path>` (its Acceptance Criteria and Notes); `docs/architecture.html` (the decisions the phase cites, every decision marked `data-contract="true"`, and the `test-policy` decision); and the phase's changes with `git diff <base-sha>..HEAD`. Read the changed code in full, not only the diff lines.
+>
+> Your job is to find an input, a state or a sequence of events that makes this phase's code do the wrong thing. Work through these questions against the real code paths: What happens when the same thing fails every time, not once? What is left behind if the process stops in the middle of this operation, and what happens on the next start? What happens when two of these run at the same time, or one starts while another is running? What happens with nothing, with one, and with far more than expected? What happens across a boundary in time — midnight, a new month, a clock change? Which requirement of an earlier phase does this code now have to meet, and does it? Which value does the code trust that comes from outside?
+>
+> For each suspected break, write a test that shows it and run it. **Only a test that fails counts.** A suspicion you could not make fail is a `SUSPECT:` line, not a break. Follow the project's test policy: a break test protects a rule with logic; do not test wording, scripts or documents.
+>
+> Sort each proven break:
+> - `BREAK: <file:line> — <the input or sequence> — <what happens> — <what should happen>` when the fix stays inside the phase doc and the settled architecture.
+> - `DESIGN-BREAK: <file:line or contract slug> — <the input or sequence> — <what happens> — <the decision that is missing>` when no fix is possible without a decision the docs do not hold: a rule a shared contract never states, a behavior the plan never chose. Do not keep a test for these.
+>
+> Report at most five proven breaks, the most harmful first. If there are `BREAK:` lines, create the branch `fix/phase-<N>-breaks` from `<default-branch>`, commit only the failing tests for them, and push it. Do not commit anything to `<default-branch>`. If there are none, create no branch and return `BREAK: none`. Return every `BREAK:`, `DESIGN-BREAK:` and `SUSPECT:` line verbatim, and the test file paths.
+
+**5.2 Act on what comes back.**
+
+- **`BREAK: none`, with or without `DESIGN-BREAK:` / `SUSPECT:` lines** — nothing to fix. Log the lines and continue.
+- **`DESIGN-BREAK:` lines** — never fix these and never launch a sub-agent to decide them; the missing decision is the user's. They are not a stop. Carry them verbatim into the per-phase summary and the Final Report, where they sit beside the contract strain lines as the case for an architecture amendment.
+- **`SUSPECT:` lines** — informational. Report them; act on none.
+- **`BREAK:` lines** — verify the branch yourself first: `git ls-remote --heads origin fix/phase-<N>-breaks` returns a line, and the branch's diff against `<default-branch>` touches test files only. A breaker that changed source code broke its brief — discard nothing, but treat it as `BREAK-UNFIXED` below and say why. Otherwise go to 5.3.
+
+**5.3 Launch one fix sub-agent** with this brief:
+
+> Unattended run: do NOT ask the user questions. Check out `fix/phase-<N>-breaks`. It holds failing tests, each showing a real defect in phase `<N>`: `<the BREAK: lines, verbatim>`. Make every one pass by fixing the code. **Do not edit, weaken, skip or delete those tests**, and do not change an architecture decision or an acceptance criterion to make one pass. Follow `CLAUDE.md` and the phase doc. Run the project's full build + test commands. When all are green, push, open a PR titled `Phase <N>: fix breaks` whose body lists each `BREAK:` line and its fix, squash-merge it with **no** `--delete-branch`, sync `<default-branch>`, and delete the local branch only. If you cannot make a test pass within those limits, stop without merging, push what you have, and return `BREAK-UNFIXED: <the BREAK line> — <why>` for each one.
+
+**5.4 Re-verify.** If the fix PR merged, run Verify checks 1, 2, 3 and 5 again against the fix PR, with the same repair and stop rules. Then confirm the breaker's tests are unchanged: `git diff <breaker's commit>..HEAD -- <test file paths>` shows no removed assertions. A fix that passed by rewriting the tests is `BREAK-UNFIXED`.
+
+**`BREAK-UNFIXED` is not a stop.** `<default-branch>` is still green — it simply does not contain the fix. Leave `fix/phase-<N>-breaks` on `origin` with its PR open and unmerged, make sure you are back on a clean `<default-branch>`, log `DECISION: phase <N> break left unfixed on fix/phase-<N>-breaks — <reason>`, and continue to the next phase. Never retry the fix, and never run a second breaker over the fix.
 
 ## Stop rules (no exceptions)
 
@@ -207,5 +250,7 @@ When you stop early, report: which phase, which gate, the exact failing output, 
 Summarize: the readiness review table exactly as it was printed at preflight, phases completed this run (one line each with PR URL), final test results, what remains (phases left, or "all complete"), and — when the build is done — what's left for the user's final-touches pass.
 
 Include a **Contract strain** section, placed before Decisions: every `CONTRACT-STRAIN:` line from every phase doc, grouped by contract, with the phase number beside each. Write "none" when there are none. This is the list the user reads to judge whether a shared contract still holds, so it stands on its own and is never folded into the Decisions list.
+
+Include a **Breaks** section, placed after Contract strain: for each phase, every `BREAK:` line with its fix PR URL, every `BREAK-UNFIXED:` line with the open PR URL, and every `DESIGN-BREAK:` and `SUSPECT:` line, all verbatim. Write "none" for a phase with none. `DESIGN-BREAK:` and `BREAK-UNFIXED:` lines are work the user still owes — say so in "what remains".
 
 Include a **Decisions** section listing every `DECISION:` line you logged, every `DECISION:` line a sub-agent returned, and every `ASSUMPTION:`, `MERGE-CONFLICT-RESOLVED:`, `RENUMBERED:`, `MERGED:`, `DERIVED:`, `DROPPED-DUPLICATE` and `DUPLICATE-KEPT` line the sub-agents returned. This section is the price of not stopping: the user gave up being asked, so they must be able to read every choice you made in one place and reverse any of them. Never omit it, and never summarize it down to "some minor decisions".
