@@ -87,7 +87,7 @@ Branch order, adapted to the domain:
 3. **Storage.** Engine, schema shape, migrations, seed and test data.
 4. **Architecture pattern.** Vertical Slice, Clean, layered, MVC, hexagonal, or plain. Make one choice. Give the reason. The house default applies.
 5. **Module layout.** The folder shape the pattern implies. Also the import direction rule. That rule says which parts may reference which, and which direction is forbidden. Also the promotion rule. That rule says when code that two features both need moves to the shared part. Recommend "at the second copy".
-6. **Boundaries.** Internal seams, and every outside service, SDK or API. State what is wrapped and what is called directly. State what happens when each one is unavailable.
+6. **Boundaries.** Internal seams, and every outside service, SDK or API. State what is wrapped and what is called directly. State what happens when each one is unavailable. For each outside service, also settle its variables, its proof call and where its key lives. See "Outside services and secrets" below.
 7. **Shared contracts.** A shared contract is a part that two or more milestones use. Write each one in full. Then walk every in-scope feature through it. See "Shared contracts" below.
 8. **State and failure.** Persistence, concurrency, transactions, error surfaces, retry and recovery. State what a partial failure leaves behind.
 9. **Non-functional.** Scale, latency, throughput, security, privacy, cost ceiling. Give numbers.
@@ -196,6 +196,68 @@ Offer the policy below as one recommendation. Take one confirmation for all of i
 - Fake services and test clocks are in the test folders. Production code has no test mode.
 
 Record the policy as one decision in section 9, Deployment, with `data-decision="test-policy"`. `dev-plan-phase` reads it when it writes the Testing Strategy and each task's VALIDATE.
+
+## Outside services and secrets
+
+An outside service is any service that the app calls over a network and that this project does not build. A build that never calls the real service proves nothing about it. The build agents invent the answers, and the tests then check the code against that invention.
+
+This part of branch 6 makes each service provable. It also keeps each key out of the repo.
+
+### The service table
+
+Write one table in section 6, Boundaries. Record it as one decision with `data-decision="outside-services"`. It has one row for each outside service, with these columns:
+
+- **Service.** The name, and what the app uses it for.
+- **Variables.** The exact name of each environment variable. Give one for the key and one for the endpoint when the endpoint can change. A service with no key has no key variable. Say so.
+- **Proof call.** The one cheapest real call that proves the key, the endpoint and the shape of the answer.
+- **Cost.** The price of one call, or the free quota.
+- **Build key limit.** The dollar limit that the user sets on the build key.
+
+`dev-orchestrate` reads the variable names from this table. `dev-plan-phase` reads the proof call. Keep the names exact.
+
+### Where a key lives
+
+**A key never lives inside the repo folder.** This includes a `.env` file that git ignores. One wrong command can commit an ignored file. A file that holds the variable names with no values is permitted in the repo.
+
+Record the choice as one decision in section 9, Deployment, with `data-decision="secrets"`. Offer the option that fits the app. Take a one-word confirmation.
+
+- **The app runs with no person present.** Examples are a server and a scheduled job. The host's service manager sets the variables from a file outside the repo folder. Only the service account can read that file.
+- **A person starts the app.** The person enters the key in the app. The app stores it in the secret store of the operating system. The app does not store it in its database or in a settings file.
+- **The build machine.** The user sets the variables at user level, outside the repo folder. The build agents and the tests read them by name.
+
+State these three rules in the same decision:
+
+- The build uses build keys. A build key is a separate key with a low dollar limit. The user can delete it after the build.
+- No code, test, log or command prints the value of a key. A check prints only that a variable is set or missing.
+- A saved answer from a real call has the key removed before it is written to disk.
+
+### How the build uses the real service
+
+State this in the `outside-services` decision. `dev-plan-phase` follows it.
+
+1. Each service has one live proof test. It reads the variables and makes the proof call.
+2. The live proof test saves the real answer as test data.
+3. All other tests use that saved test data. They make no live call.
+4. The live proof test runs again only when the code that calls that service changes, or when the user asks.
+
+Test data that an agent wrote by hand is not proof. It must be marked as invented, and the service is reported as not proven.
+
+### The key walk
+
+Do the key walk after the user agrees to the service table. It is a conversation. It writes no code.
+
+Take one service at a time. For each one, tell the user:
+
+1. Where to create the build key. Name the page in words. Do not link it.
+2. The smallest permission that the proof call needs.
+3. The dollar limit to set on the key.
+4. The exact variable names, and the command that sets them at user level on the build machine.
+
+Never ask the user to paste a key into the conversation. If the user pastes one, tell them to delete that key and make a new one.
+
+A variable set now is not visible to a session that is already open. Tell the user to open a new session before the build. `dev-orchestrate` checks each variable by name at the start of the build.
+
+The user can skip the key walk for a service. Record that service in Open questions as not proven, with the phase that first needs it.
 
 ## How to write
 

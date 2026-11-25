@@ -34,7 +34,7 @@ An argument is optional:
 
 ## Step 0 — Preflight (abort early, not after hours of work)
 
-Verify, in order. Checks 1–4 are environment checks you cannot fix: if one fails, STOP and report — do not start any phase. Checks 5–7 carry their own decide-or-stop rules; follow the rule stated on the check rather than stopping by default.
+Verify, in order. Checks 1–4 are environment checks you cannot fix: if one fails, STOP and report — do not start any phase. Checks 5–8 carry their own decide-or-stop rules; follow the rule stated on the check rather than stopping by default.
 
 1. `git rev-parse --show-toplevel` succeeds and `git remote get-url origin` names the expected repo. Note the working-tree state (uncommitted doc edits are acceptable; they will ride into the next phase branch).
 2. Detect the default branch (`git remote show origin | sed -n '/HEAD branch/s/.*: //p'`); `git checkout <default-branch> && git pull` succeeds and `git log --oneline -3` looks sane. Refer to it as `<default-branch>` below.
@@ -78,6 +78,13 @@ On a confirmed continue, log one `DECISION:` line per failed row (`DECISION: use
    - **No open slug is touched by this run** — proceed. Log `DECISION: open architecture slugs <list> are out of scope for phases <range>, proceeding`, and recommend `dev-architecture` in the Final Report before the phases that do touch them.
    - **Any open slug is touched** — STOP and name those slugs. That decision is the user's, and a phase planned on top of an open one builds the wrong thing.
    - If the file does not exist, row 4 of the readiness review already reported it and the user already confirmed. Do not stop and do not ask a second time. Note in your Final Report that phases were planned without a settled architecture, and recommend `dev-architecture` before the next build.
+8. **Outside service keys.** Read the `outside-services` decision in `docs/architecture.html` and take the environment variable names from its table. If the file or the decision is absent, log `DECISION: no outside-services decision, key check skipped` and go on.
+   - Check each variable **by name only**: test that it is non-empty (`[ -n "$NAME" ]`, or the shell's equivalent) and print `SET` or `MISSING` beside the name. Never print, echo, log or pass along a value — not in a table, not in a brief to a sub-agent, not in the Final Report.
+   - Print one line per service: the service, its variables, and `SET` or `MISSING`. Print this on every run, including a resumed one.
+   - **Every variable is set** — say so in one line and go on. Ask nothing.
+   - **A variable is missing for a service that no phase in this run calls** — go on. Log `DECISION: <service> keys missing, out of scope for phases <range>`.
+   - **A variable is missing for a service a phase in this run calls** — print what it costs, in these words: "That service is built against invented answers. Its tests prove nothing about the real service, and the first real call happens after the build." Then ask the user once whether to continue. Wait for an explicit yes; anything else is a STOP, and no answer is a stop. A variable set after this session started is not visible to it — if the user says they have just set it, tell them to start a new session and re-run.
+   - On a confirmed continue, log `DECISION: user confirmed continue with <service> not proven` and repeat it in the Final Report.
 
 ## The phase loop
 
@@ -148,6 +155,7 @@ Handle each of these on sight; never treat one as a generic failure.
 | `DESIGN-BREAK:` | breaker | A proven defect whose fix needs a decision the docs do not hold. Never fix it. Report it verbatim; not a stop. |
 | `BREAK-UNFIXED:` | fix sub-agent | Not a stop. Leave the fix branch and its PR open, log a `DECISION:`, continue. Never retry. |
 | `SUSPECT:` | breaker | Informational. Report it; act on none. |
+| `PROVEN:` `UNPROVEN:` | planner / executor | Not a failure and not a stop. Copy each one verbatim into the Final Report's Not proven section. An `UNPROVEN:` line for a service whose variables preflight check 8 showed as `SET` is a defect in the phase — say so beside the line. |
 | `MALFORMED-PHASE-DOC` | planner / progress | The phase doc is unparseable, so re-running the same command cannot help — and the planner will refuse to overwrite it. Break the deadlock in one move: rename the file to `<name>.malformed-<short-sha>.html` (never delete it), then relaunch the planner with `REPLAN-AUTHORIZED` so it plans the phase as unplanned. Do this **once per phase**; a second `MALFORMED-PHASE-DOC` for the same phase is a STOP. Log `DECISION: set aside malformed phase doc <old path> → <new path>`. |
 | `ALREADY-PLANNED: <path>` | planner | The phase already has a doc, so it was never `not-planned`. Re-read `docs/progress.html`; if it disagrees with what is on disk, run `/dev-create-progress` to resync (this is a repair, not a ladder attempt), then re-select. Never order the planner to overwrite the doc. |
 | `NEEDS-PLAN: phase <N>` | executor | Not a failure — the phase was executed before it was planned. Go back to Step 2 and plan phase `<N>`, then re-run Step 3. This does not consume a plan-gate attempt. |
@@ -161,7 +169,7 @@ Before launching, record `git rev-parse HEAD` on `<default-branch>` as `<base-sh
 
 Launch a sub-agent with this brief:
 
-> Run `/dev-execute <N>` for this project from the repo root. This is an unattended run: do NOT ask the user questions; where the plan leaves room, choose the option most consistent with `CLAUDE.md` and the phase doc, and record the deviation in your Final Report. Follow the skill exactly, including its final step (push, PR, squash-merge with **no** `--delete-branch`, sync the default branch, delete the *local* branch only, re-run build + tests on the merged default branch). The remote branch on `origin` must survive the merge — never delete it. If the squash-merge conflicts and every conflicted path is under `docs/` or is `README.md`, resolve it per Step 9.3 and retry once rather than stopping; a conflict in any source, test, config or build file is a stop. Return your full Final Report, including every `MERGE-CONFLICT-RESOLVED:` line.
+> Run `/dev-execute <N>` for this project from the repo root. Keys for outside services are in environment variables: read them by name, never print, log or commit a value, and return a `PROVEN:` or `UNPROVEN:` line for every outside service this phase calls. This is an unattended run: do NOT ask the user questions; where the plan leaves room, choose the option most consistent with `CLAUDE.md` and the phase doc, and record the deviation in your Final Report. Follow the skill exactly, including its final step (push, PR, squash-merge with **no** `--delete-branch`, sync the default branch, delete the *local* branch only, re-run build + tests on the merged default branch). The remote branch on `origin` must survive the merge — never delete it. If the squash-merge conflicts and every conflicted path is under `docs/` or is `README.md`, resolve it per Step 9.3 and retry once rather than stopping; a conflict in any source, test, config or build file is a stop. Return your full Final Report, including every `MERGE-CONFLICT-RESOLVED:` line.
 
 ### 4. Verify (the hard gate — run these commands yourself)
 
@@ -238,6 +246,7 @@ These are the only stops. Everything else is a decision — see "Decide, don't s
 - **Anything requires an irreversible choice the docs don't answer** — deleting user data, changing repo settings, publishing, spending money, force-pushing, rewriting merged history → STOP and ask.
 - **Readiness review row 1 or row 5 fails** — no PRD, or no `docs/progress.html` after the one allowed `/dev-create-progress` repair → STOP. These two are never confirmable.
 - **A readiness review row 2, 3 or 4 fails and the user does not explicitly confirm** → STOP. No answer is a stop.
+- **Preflight check 8 finds a missing key variable for a service this run calls, and the user does not explicitly confirm** → STOP. No answer is a stop.
 - **Preflight environment failures** — no repo, wrong origin, `gh` not authenticated, missing toolchain → STOP. You cannot fix the user's machine.
 - **A git failure you cannot attribute to doc edits** — network, diverged history, auth, or a pull that fails after one retry → STOP.
 - **A sub-agent reports that repairing `docs/progress.html` would lose a `done` / `skipped` mark or a blocker** → STOP and report exactly which marks were at risk. Completed work is never traded for a clean run.
@@ -250,6 +259,8 @@ When you stop early, report: which phase, which gate, the exact failing output, 
 Summarize: the readiness review table exactly as it was printed at preflight, phases completed this run (one line each with PR URL), final test results, what remains (phases left, or "all complete"), and — when the build is done — what's left for the user's final-touches pass.
 
 Include a **Contract strain** section, placed before Decisions: every `CONTRACT-STRAIN:` line from every phase doc, grouped by contract, with the phase number beside each. Write "none" when there are none. This is the list the user reads to judge whether a shared contract still holds, so it stands on its own and is never folded into the Decisions list.
+
+Include a **Not proven** section, placed first among these sections: the key table from preflight check 8 (names and `SET` / `MISSING` only), then every outside service with its `PROVEN:` or `UNPROVEN:` line. A service with neither line was never proven — list it as `UNPROVEN`. This section tells the user which parts of a green build have never met the real world, so it is never omitted and never summarized.
 
 Include a **Breaks** section, placed after Contract strain: for each phase, every `BREAK:` line with its fix PR URL, every `BREAK-UNFIXED:` line with the open PR URL, and every `DESIGN-BREAK:` and `SUSPECT:` line, all verbatim. Write "none" for a phase with none. `DESIGN-BREAK:` and `BREAK-UNFIXED:` lines are work the user still owes — say so in "what remains".
 
