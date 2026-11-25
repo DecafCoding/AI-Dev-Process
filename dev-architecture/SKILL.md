@@ -1,6 +1,6 @@
 ---
 name: dev-architecture
-description: Run a branch-by-branch architecture interview that turns a settled MVP scope into an agreed technical design at docs/architecture.html. It writes no code, ever. It settles how the app gets built. That covers language, storage, architecture pattern, module layout, boundaries, failure handling, non-functional targets, deployment and reversibility risk. It runs on a scope-frozen gate, after dev-initial-interview and before dev-create-prd and dev-plan-phase. It also runs in amendment mode when the architecture already exists. Amendment mode names every doc the change made stale and returns to whatever run was paused. Use it whenever the user wants to design, decide, review or change the architecture, stack, tech choices, storage, project structure or design patterns. That includes "what should I build this in" and "pick the stack". Also use it when a request would tempt you to settle technical design inside a requirements or feature interview.
+description: Run a branch-by-branch architecture interview that turns a settled MVP scope into an agreed technical design at docs/architecture.html. It writes no code, ever. It settles how the app gets built. That covers language, storage, architecture pattern, module layout, boundaries, the contracts that phases share, failure handling, non-functional targets, deployment and reversibility risk. It runs on a scope-frozen gate, after dev-initial-interview and before dev-create-prd and dev-plan-phase. It also runs in amendment mode when the architecture already exists. Amendment mode names every doc the change made stale and returns to whatever run was paused. Use it whenever the user wants to design, decide, review or change the architecture, stack, tech choices, storage, project structure or design patterns. That includes "what should I build this in" and "pick the stack". Also use it when a request would tempt you to settle technical design inside a requirements or feature interview.
 ---
 
 # Dev Architecture
@@ -86,12 +86,13 @@ Branch order, adapted to the domain:
 2. **Runtime and stack.** Language, framework, versions. The house default applies.
 3. **Storage.** Engine, schema shape, migrations, seed and test data.
 4. **Architecture pattern.** Vertical Slice, Clean, layered, MVC, hexagonal, or plain. Make one choice. Give the reason. The house default applies.
-5. **Module layout.** The folder shape the pattern implies. Also the import direction rule. That rule says which parts may reference which, and which direction is forbidden.
+5. **Module layout.** The folder shape the pattern implies. Also the import direction rule. That rule says which parts may reference which, and which direction is forbidden. Also the promotion rule. That rule says when code that two features both need moves to the shared part. Recommend "at the second copy".
 6. **Boundaries.** Internal seams, and every outside service, SDK or API. State what is wrapped and what is called directly. State what happens when each one is unavailable.
-7. **State and failure.** Persistence, concurrency, transactions, error surfaces, retry and recovery. State what a partial failure leaves behind.
-8. **Non-functional.** Scale, latency, throughput, security, privacy, cost ceiling. Give numbers.
-9. **Deployment.** Target, environments, configuration and secrets, CI.
-10. **Risks and reversibility.** For each decision above, state how expensive it is to undo. Give this branch full attention. Do not compress it into a closing sentence.
+7. **Shared contracts.** A shared contract is a part that two or more milestones use. Write each one in full. Then walk every in-scope feature through it. See "Shared contracts" below.
+8. **State and failure.** Persistence, concurrency, transactions, error surfaces, retry and recovery. State what a partial failure leaves behind.
+9. **Non-functional.** Scale, latency, throughput, security, privacy, cost ceiling. Give numbers.
+10. **Deployment.** Target, environments, configuration and secrets, CI.
+11. **Risks and reversibility.** For each decision above, state how expensive it is to undo. Give this branch full attention. Do not compress it into a closing sentence.
 
 **Order matters here.** Stack limits the workable patterns. Pattern dictates layout. Storage and boundaries decide most of state and failure. Out-of-order decisions force you to re-decide backwards.
 
@@ -100,6 +101,67 @@ Ask again when an answer is vague. "It should scale" is not an answer. "One user
 Surface a conflict at once when an answer contradicts an earlier one or contradicts the MVP plan. Do not carry it forward.
 
 **When a branch turns out to be scope.** The user reaches for a feature that is not on the in-scope list. Stop. Name it. Offer `dev-add-feature`. Do not widen the MVP from inside an architecture interview.
+
+## Shared contracts
+
+A shared contract is a part that two or more milestones use. Examples are an interface that each feature implements, a file that one part writes and another part reads, the life cycle of a record, and the configuration layout.
+
+Each phase is planned after the phase before it is built. The planner sees the code that exists. It does not see the features that come later. A contract that fits only the first feature is bent by each later feature. This branch prevents that.
+
+### Find them
+
+Read the milestones in `docs/mvp-plan.html`. List each part that more than one milestone reads, writes or implements. Show the list to the user and confirm it before you write a contract.
+
+### Write each one in full
+
+A sketch is not a contract. If a phase planner must invent a field, a state or a rule, the contract is incomplete.
+
+A full contract states all of these that apply:
+
+- Each operation or field, with its type and its meaning.
+- Which part writes it and which parts read it.
+- Each state of a record, and each move between states. Include failure, the retry count, and when the app gives up.
+- The time zone rule for each time value.
+- What happens when two jobs use it at the same time.
+- How a new field or a new operation is added later.
+
+The hard constraint permits this. Schemas and interface contracts are design. Write them as a signature list, a table or a data shape. Do not write function bodies.
+
+### Walk each feature through each contract
+
+Do the walk on paper, before the contract is settled. You do the walk. Do not ask the user to do it.
+
+1. Take one contract.
+2. List each in-scope feature that touches it. Use the in-scope checklist of the plan.
+3. Start with the feature that fits worst. A feature with no input, no output or a different trigger is a good first choice.
+4. For that feature, write how it uses each operation and each field.
+5. Repeat for each other feature.
+
+These are the signs of a bad fit:
+
+- The feature has no use for an operation and must return nothing.
+- The feature must store a fake record to satisfy the contract.
+- Shared code must check which feature it works for.
+- The feature needs an extra interface that only it implements.
+- A field has no meaning for the feature.
+
+When you find a bad fit, do not accept a special case. Change the contract so that the feature fits, or keep the feature outside the contract and state that. Ask the user only when the choice changes a decision that the user already made. Ask one question, with a recommendation.
+
+### Record them
+
+Each shared contract is a decision in section 6, Boundaries. Add `data-contract="true"` to its heading:
+
+```html
+<h3 class="decision"
+    data-decision="station-contract"
+    data-contract="true"
+    data-status="settled"
+    data-reversible="moderate">Station contract</h3>
+```
+
+Under the heading, put the full contract. Then put the walk as a table with these columns: the feature, how it uses the contract, and the result. The result is one of "fits", "contract changed" or "kept outside". Each in-scope feature that touches the contract has one row.
+
+`dev-plan-phase` reads `data-contract="true"`. It reports each place where a phase bends one of these contracts. A shared contract is seldom cheap to undo. Mark it `moderate` or `expensive`.
 
 ## How to write
 
@@ -170,7 +232,7 @@ The path is fixed on purpose. `dev-create-prd`, `dev-plan-phase`, `dev-claud-md`
 3. Storage
 4. Architecture pattern
 5. Module layout
-6. Boundaries
+6. Boundaries. The shared contracts go here, each with its walk table
 7. State and failure
 8. Non-functional requirements
 9. Deployment
@@ -189,7 +251,7 @@ The path is fixed on purpose. `dev-create-prd`, `dev-plan-phase`, `dev-claud-md`
 
 - `data-decision`. A stable kebab-case slug. Amendments reference it, so it never changes once written.
 - `data-status`. One of `settled`, `open` or `amended`.
-- `data-reversible`. One of `cheap`, `moderate` or `expensive`. Fill this from branch 10. Make it honest. An expensive decision marked cheap is how a project ends up rewritten.
+- `data-reversible`. One of `cheap`, `moderate` or `expensive`. Fill this from branch 11. Make it honest. An expensive decision marked cheap is how a project ends up rewritten.
 
 A human reads the visible heading. Tooling reads the attributes. Keep them in sync.
 
@@ -225,6 +287,7 @@ When the file already exists:
 4. **Never delete a decision.** Flip its `data-status` to `amended`. Revise the section text. Keep the original reasoning visible. That reasoning is why the decision was made. Deleting it makes the change unauditable.
 5. **Append an Amendments entry** as a `<p class="meta">`. Give the date, the decision slugs that changed, what changed, and what caused it. The history must be readable without a diff.
 6. **Re-check the override warning.** An amendment can introduce one where there was none before.
+7. **Mark answered strain.** Do this only when the amendment changed a shared contract because of `CONTRACT-STRAIN` lines. Add `data-strain-cleared="<N>"` to the heading of that contract. `<N>` is the latest phase whose strain lines this amendment answered. `dev-orchestrate` then counts only the strain lines of later phases.
 
 ### Note how you got here
 
@@ -232,7 +295,7 @@ Amendment mode has four entry points. The right closing report depends on which 
 
 1. **`dev-add-feature`** paused a feature interview because the feature did not fit.
 2. **`dev-plan-phase`** could not plan a phase within the settled decisions.
-3. **`dev-orchestrate`** stopped its loop on `ARCHITECTURE-MISFIT`.
+3. **`dev-orchestrate`** stopped its loop on `ARCHITECTURE-MISFIT`, or on a second `CONTRACT-STRAIN` line for one shared contract. For contract strain, read each `CONTRACT-STRAIN` line that the run reported. Then do the contract walk again for that contract, with every in-scope feature. The phases already built are evidence of what the contract must hold.
 4. **The user asked directly.** An example is "we need to move to Postgres". Nothing is paused.
 
 Ask if the entry point is unclear from the conversation. One line is enough. It changes what you tell them at the end.
