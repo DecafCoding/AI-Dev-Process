@@ -103,7 +103,9 @@ Launch a sub-agent with this brief (fill in `<N>` and the project name):
 >
 > **Architecture is not yours to decide.** If `docs/architecture.html` exists, it is the authority for stack, storage, pattern, module layout, boundaries, state and failure, non-functional targets and deployment. Conform to it and cite the `data-decision` slugs this phase touches in the Notes. If the phase cannot be planned within those decisions — or depends on one marked `data-status="open"` — **do not decide it yourself and do not plan around it.** Stop, write no phase doc, and return `ARCHITECTURE-MISFIT` followed by the slugs that would have to change, their `data-reversible` values, and one line on why the phase does not fit.
 >
-> Otherwise, run `/dev-create-progress` so `docs/progress.html` reflects the new phase doc. Return: the phase doc path, slug, branch name, task count, the list of design decisions you made, and — verbatim, every one of them — any `ASSUMPTION:`, `DECISION:`, `RENUMBERED:`, `MERGED:`, `DERIVED:`, `DROPPED-DUPLICATE`, `DUPLICATE-KEPT` or `MALFORMED-PHASE-DOC` lines either skill produced.
+> **Report every bend of a shared contract.** A decision marked `data-contract="true"` in `docs/architecture.html` is used by more than one phase. If this phase fits one only through a special case — an unused operation, a fake record, a per-feature check in shared code, an extra interface only this feature implements, a changed signature — plan the smallest workaround, do not stop, and record a `CONTRACT-STRAIN:` line in Notes exactly as `/dev-plan-phase` describes. Read the later PRD phases as well as this one and record the `FORWARD:` and `PROMOTION:` lines the skill asks for.
+>
+> Otherwise, run `/dev-create-progress` so `docs/progress.html` reflects the new phase doc. Return: the phase doc path, slug, branch name, task count, the list of design decisions you made, and — verbatim, every one of them — any `CONTRACT-STRAIN:`, `ASSUMPTION:`, `DECISION:`, `RENUMBERED:`, `MERGED:`, `DERIVED:`, `DROPPED-DUPLICATE`, `DUPLICATE-KEPT` or `MALFORMED-PHASE-DOC` lines either skill produced.
 
 **Architecture misfit is a hard stop, not a retry.** If the sub-agent returns `ARCHITECTURE-MISFIT`, STOP the whole loop immediately. Do not relaunch it, do not try the next phase, and do not let a second sub-agent decide the architecture instead. Surface the returned slugs and reasoning to the user, and name `dev-architecture` in amendment mode as the fix. This is the one stop the loop cannot resolve on its own, because the decision belongs to the user.
 
@@ -122,6 +124,18 @@ If the gate fails, relaunch the planning sub-agent with the specific defect name
 
 `ARCHITECTURE-MISFIT` is exempt from this ladder — it stops on the first occurrence, with no retry.
 
+**Contract strain check** (run it yourself after the plan gate passes, before Step 3):
+
+A `CONTRACT-STRAIN:` line means the phase fits a shared contract only by bending it. One bend is a note for the user. Two bends of the same contract mean the contract is wrong, and every further phase built on it makes the fix more expensive.
+
+1. Grep the Notes of every phase doc under `docs/phases/` for `CONTRACT-STRAIN:` lines. Ignore `CONTRACT-STRAIN: none`. Do not rely on the sub-agent's summary — read the files.
+2. Group the lines by contract (the `data-decision` slug, or the file path where the architecture marks no contracts).
+3. Skip lines an amendment already answered. If the contract's heading in `docs/architecture.html` carries `data-strain-cleared="<M>"`, count only lines from phases that come after phase `<M>` in `docs/progress.html` order.
+4. **A contract with one counted line** — not a stop. Log `DECISION: contract strain on <slug> in phase <N>, first occurrence, proceeding`, put the line verbatim in the per-phase summary, and continue to Step 3.
+5. **A contract with two or more counted lines** — STOP before executing this phase. It makes no difference whether the lines come from two phases or from one. Leave the phase doc on disk; it is evidence, and the amendment's stale list will re-plan it. Report every counted line for that contract verbatim, and name `dev-architecture` in amendment mode as the fix.
+
+Run this check on a resumed run too, before the first phase executes: a second line may already be on disk from the run that stopped.
+
 ### 2b. Codes a sub-agent can return
 
 Handle each of these on sight; never treat one as a generic failure.
@@ -129,6 +143,7 @@ Handle each of these on sight; never treat one as a generic failure.
 | Code | Who returns it | What you do |
 |---|---|---|
 | `ARCHITECTURE-MISFIT` | planner | STOP the loop on the first occurrence, no retry. Report the slugs and recommend `dev-architecture` in amendment mode. |
+| `CONTRACT-STRAIN:` | planner | Not a failure. Run the contract strain check under Step 2. The first counted line for a contract is logged and reported; the second is a STOP before the phase executes. Never ask the planner to remove the line or to plan around it. |
 | `MALFORMED-PHASE-DOC` | planner / progress | The phase doc is unparseable, so re-running the same command cannot help — and the planner will refuse to overwrite it. Break the deadlock in one move: rename the file to `<name>.malformed-<short-sha>.html` (never delete it), then relaunch the planner with `REPLAN-AUTHORIZED` so it plans the phase as unplanned. Do this **once per phase**; a second `MALFORMED-PHASE-DOC` for the same phase is a STOP. Log `DECISION: set aside malformed phase doc <old path> → <new path>`. |
 | `ALREADY-PLANNED: <path>` | planner | The phase already has a doc, so it was never `not-planned`. Re-read `docs/progress.html`; if it disagrees with what is on disk, run `/dev-create-progress` to resync (this is a repair, not a ladder attempt), then re-select. Never order the planner to overwrite the doc. |
 | `NEEDS-PLAN: phase <N>` | executor | Not a failure — the phase was executed before it was planned. Go back to Step 2 and plan phase `<N>`, then re-run Step 3. This does not consume a plan-gate attempt. |
@@ -153,7 +168,7 @@ After the execute sub-agent returns:
 5. The project's build + test commands from `CLAUDE.md` exit 0 on `<default-branch>`.
 6. `docs/progress.html` on `<default-branch>` shows phase `<N>` `data-status="complete"` with every task `done` or `skipped`.
 
-All six pass → post a short per-phase summary (phase, tasks, PR URL, test results, deviations) so the user can follow along, then loop to Step 1.
+All six pass → post a short per-phase summary (phase, tasks, PR URL, test results, deviations, and every `CONTRACT-STRAIN:` line this phase's doc holds, verbatim) so the user can follow along, then loop to Step 1.
 
 **A failed check is not automatically a stop.** Checks 3 and 5 are the load-bearing ones — the PR really merged, and the merged default branch really builds. The rest are bookkeeping you may repair yourself, once each, under the one-repair rule:
 
@@ -173,6 +188,7 @@ These are the only stops. Everything else is a decision — see "Decide, don't s
 - **A verify check fails in a way that leaves source, test, config or build files uncommitted or unexplained** → STOP.
 - **A plan gate fails three times for the same phase** (after the self-repair attempt) → STOP.
 - **A planning sub-agent returns `ARCHITECTURE-MISFIT`** → STOP on the first occurrence, with no retry. The phase needs an architecture decision changed, and that is the user's call, not a sub-agent's. Report the slugs, their `data-reversible` values, and recommend `dev-architecture` in amendment mode.
+- **A shared contract has two or more counted `CONTRACT-STRAIN:` lines** (see the contract strain check in Step 2) → STOP before executing the phase that added the latest one. Report every line for that contract verbatim and recommend `dev-architecture` in amendment mode. The first line for a contract is never a stop.
 - **An open architecture decision is touched by a phase in this run** → STOP and name the slugs.
 - **A blocker in `docs/progress.html` is user-owned** — it names a decision, a credential, an external service, or an architecture change → STOP and surface it verbatim. Stale and actionable blockers are cleared, not stopped on.
 - **A pre-existing failure on `<default-branch>` is out of scope for this run, or the project does not compile** → STOP.
@@ -189,5 +205,7 @@ When you stop early, report: which phase, which gate, the exact failing output, 
 ## Final report
 
 Summarize: the readiness review table exactly as it was printed at preflight, phases completed this run (one line each with PR URL), final test results, what remains (phases left, or "all complete"), and — when the build is done — what's left for the user's final-touches pass.
+
+Include a **Contract strain** section, placed before Decisions: every `CONTRACT-STRAIN:` line from every phase doc, grouped by contract, with the phase number beside each. Write "none" when there are none. This is the list the user reads to judge whether a shared contract still holds, so it stands on its own and is never folded into the Decisions list.
 
 Include a **Decisions** section listing every `DECISION:` line you logged, every `DECISION:` line a sub-agent returned, and every `ASSUMPTION:`, `MERGE-CONFLICT-RESOLVED:`, `RENUMBERED:`, `MERGED:`, `DERIVED:`, `DROPPED-DUPLICATE` and `DUPLICATE-KEPT` line the sub-agents returned. This section is the price of not stopping: the user gave up being asked, so they must be able to read every choice you made in one place and reverse any of them. Never omit it, and never summarize it down to "some minor decisions".
