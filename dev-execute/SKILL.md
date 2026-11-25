@@ -118,7 +118,7 @@ Work through tasks in order (lowest ID first). For each task:
 
 **6.1 Start** — Set the task to `in_progress` with `TaskUpdate` before writing any code.
 
-**6.2 Implement** — Make all necessary changes. Follow existing patterns, conventions, and the project's `CLAUDE.md`.
+**6.2 Implement** — Make all necessary changes. Follow existing patterns, conventions, and the project's `CLAUDE.md`. Write the tests the plan's Testing Strategy names, and no others: do not add a test for anything on the plan's Not Tested list or excluded by the `test-policy` decision in `docs/architecture.html`. If you find a rule with logic that the plan left untested, add the test and record it as a deviation in the Final Report.
 
 **6.3 Validate** — Run the task's validation command (linter, type check, or test) before moving on. Fix failures before proceeding — do not mark a task complete if its validation fails.
 

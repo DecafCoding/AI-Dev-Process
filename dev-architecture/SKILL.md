@@ -91,7 +91,7 @@ Branch order, adapted to the domain:
 7. **Shared contracts.** A shared contract is a part that two or more milestones use. Write each one in full. Then walk every in-scope feature through it. See "Shared contracts" below.
 8. **State and failure.** Persistence, concurrency, transactions, error surfaces, retry and recovery. State what a partial failure leaves behind.
 9. **Non-functional.** Scale, latency, throughput, security, privacy, cost ceiling. Give numbers.
-10. **Deployment.** Target, environments, configuration and secrets, CI.
+10. **Deployment.** Target, environments, configuration and secrets, CI. Also the test policy. See "Test policy" below.
 11. **Risks and reversibility.** For each decision above, state how expensive it is to undo. Give this branch full attention. Do not compress it into a closing sentence.
 
 **Order matters here.** Stack limits the workable patterns. Pattern dictates layout. Storage and boundaries decide most of state and failure. Out-of-order decisions force you to re-decide backwards.
@@ -153,15 +153,49 @@ Each shared contract is a decision in section 6, Boundaries. Add `data-contract=
 
 ```html
 <h3 class="decision"
-    data-decision="station-contract"
+    data-decision="plugin-contract"
     data-contract="true"
     data-status="settled"
-    data-reversible="moderate">Station contract</h3>
+    data-reversible="moderate">Plugin contract</h3>
 ```
 
 Under the heading, put the full contract. Then put the walk as a table with these columns: the feature, how it uses the contract, and the result. The result is one of "fits", "contract changed" or "kept outside". Each in-scope feature that touches the contract has one row.
 
 `dev-plan-phase` reads `data-contract="true"`. It reports each place where a phase bends one of these contracts. A shared contract is seldom cheap to undo. Mark it `moderate` or `expensive`.
+
+## Test policy
+
+A build agent writes a test for each task unless a rule tells it what to test. The result is a test suite larger than the app. Much of it checks things that are not the app. The test policy is that rule. Settle it in branch 10.
+
+Offer the policy below as one recommendation. Take one confirmation for all of it. Ask a separate question only for the time limit, because that is a number the user owns.
+
+**What gets a test.**
+
+- Each rule that has logic. A rule has logic when it has a condition, a calculation, a change of state, or a failure path.
+- Each shared contract. It gets one test set. That set runs against every feature that implements the contract. A new feature is added to the set. The set is not copied.
+- One path through the whole app, from the first input to the last output.
+
+**What gets no test.**
+
+- The text of a script, a document or a configuration file.
+- The test tools and the fake services.
+- The exact words on a screen. Test that the data is on the page.
+- A case that the shared contract test set already covers, repeated for one feature.
+- The behavior of a library or a framework.
+
+**How tests run.**
+
+- State the command that runs the tests of one feature folder. State the command that runs the full suite.
+- A task runs the tests of the folder that it changed. The full suite runs one time at the end of each phase.
+- State a time limit for the full suite, in seconds. A suite over the limit is a defect.
+- No test waits on a real clock. The design gives the code a clock that a test can set.
+
+**Where test code lives.**
+
+- All checks run from the one check command. A check tool outside that command is not built.
+- Fake services and test clocks are in the test folders. Production code has no test mode.
+
+Record the policy as one decision in section 9, Deployment, with `data-decision="test-policy"`. `dev-plan-phase` reads it when it writes the Testing Strategy and each task's VALIDATE.
 
 ## How to write
 
