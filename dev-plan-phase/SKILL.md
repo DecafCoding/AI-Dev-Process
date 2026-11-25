@@ -113,6 +113,8 @@ The phase branch does not need to exist for planning — the autonomous routine 
 - Find similar test examples for reference
 - Understand test organization (unit vs integration)
 - Note coverage requirements and testing standards
+- Read the `test-policy` decision in `docs/architecture.html` (see "Test Scope" below) — it says what gets a test, what does not, the scoped and full test commands, and the suite's time limit
+- Find any test set that already runs against every implementer of a shared contract. A new implementer is *added* to that set; its cases are not copied into a new file
 
 **6. Integration Points**
 
@@ -302,7 +304,7 @@ Fill the `<body>` with the following, using the required shapes above. The HTML 
    ```
    Then the tasks (and milestones, if chosen), each task as `<h4 class="task" data-task="<N>">Task <N>: <name></h4>` followed by its body.
 
-9. **`<h2>Testing Strategy</h2>`** — Unit Tests, Integration Tests, Edge Cases (`<h3>` subsections), based on the project's framework and patterns found in Step 2.
+9. **`<h2>Testing Strategy</h2>`** — Unit Tests, Integration Tests, Edge Cases (`<h3>` subsections), based on the project's framework and patterns found in Step 2 and bounded by "Test Scope" below. List each planned case as one line (input → expected result) under the rule it protects, and end with a `<h3>Not Tested</h3>` list naming what the phase deliberately leaves untested and which Test Scope rule excludes it.
 
 10. **`<h2>Validation Commands</h2>`** — Levels 1–5 as `<h3>` subsections with `<pre><code>` command blocks (see "Validation Commands" detail below).
 
@@ -372,6 +374,34 @@ These rules ensure the plan can execute without human intervention:
    The dedicated test files added later are the *durable regression suite* — they don't substitute for the per-task gate. Both belong in the plan.
 6. **Milestone validation checkpoints are compound, not substitute.** If a milestone's checkpoint is the *only* validator for a task within it, that task is missing its own gate and rule 5 is violated.
 
+### Test Scope (mandatory)
+
+A VALIDATE on every task does not mean a new test file on every task. Left unguided, that reading produces a suite twice the size of the app, much of it checking things that are not the app. Plan tests by what they protect.
+
+**Authority.** `docs/architecture.html`'s `test-policy` decision wins. Where it is absent, apply the defaults below and record `ASSUMPTION: no test-policy decision — used dev-plan-phase defaults` in Notes.
+
+**Plan a test for:**
+
+- each rule with logic the phase adds — a condition, a calculation, a state change, a failure path. Name the cases in the Testing Strategy: the input and the expected result, one line each;
+- each shared contract the phase implements — by adding the new implementer to the contract's existing test set, or creating that set once (parametrised over implementers) if this phase adds the first one;
+- one path through the whole app, kept in one place and extended as phases add to it — not a new end-to-end harness per phase.
+
+**Plan no test for:**
+
+- the text of a script, a document, a config file or a service unit;
+- the test tools, fixtures or fake services themselves;
+- the exact wording on a page — assert the data is present, not the sentence around it;
+- a case the shared contract test set already covers, repeated for one feature;
+- library or framework behavior.
+
+**What a VALIDATE may be.** In order of preference: (1) an existing test, run scoped; (2) a new test this task adds *because it adds a rule with logic*; (3) an inline one-liner that imports and exercises the new code (Task Authoring Rule 5). A task that adds no logic — a template, a script, a config key, a doc — takes (1) or (3), never a new test file.
+
+**Run by change.** A task's VALIDATE runs the lint/type check plus the tests of the feature folder the task touched, using the scoped command from the test policy. The full suite runs once, at final validation, not after every task. A task that changes shared code runs the tests of that shared module and of the contract test set.
+
+**Keep it fast.** No test waits on a real clock; tests set an injected clock. If the phase's new tests would push the full suite past the policy's time limit, that is a planning defect — say so in Notes and plan the fix (usually removing real waits), do not raise the limit.
+
+**Keep test code out of production.** Fake services, saved answers and test clocks live in the test folders. Do not plan an environment variable or mode that makes production code behave differently under test. Do not plan a check tool that runs outside the project's one check command.
+
 ### Final milestone (mandatory): Commit, push, and open PR
 
 Every plan ends with a final task that commits, pushes the branch, and opens the PR. An autonomous execution loop only ends here. Render it as the last `<h4 class="task" …>` (under a final `<h3 class="milestone">Commit, push, and open PR</h3>` if using Milestones rendering):
@@ -393,7 +423,7 @@ Every plan ends with a final task that commits, pushes the branch, and opens the
 Under `<h2>Validation Commands</h2>`, emit `<h3>` subsections. Execute every command to ensure zero regressions and 100% phase correctness.
 
 - **Level 1: Syntax & Style** — lint (0 errors) and format check, in `<pre><code>` blocks. Fill in real commands from the project's toolchain (discovered in Step 2 from `pyproject.toml` / `package.json` / `CLAUDE.md`). Examples: Python+uv+ruff → `uv run ruff check .` / `uv run ruff format --check .`; Node+ESLint+Prettier → `npm run lint` / `npm run format:check`; Go → `go vet ./...` / `gofmt -l .`. Expected: exit code 0.
-- **Level 2: Unit Tests** — project-specific unit test commands.
+- **Level 2: Unit Tests** — project-specific unit test commands. Give both forms: the scoped command for the feature folders this phase touches (used by task VALIDATEs) and the full-suite command (run once at final validation).
 - **Level 3: Integration Tests** — project-specific integration test commands.
 - **Level 4: Manual Validation** — phase-specific, **non-interactive shell snippets** (one block, exits 0 on success / non-zero on failure). No `kill %1`, no operator-read-and-decide steps. If a server is needed, start it in the background, poll until ready (`curl -fsS` loop with timeout), run assertions, then tear down.
 - **Level 5: Additional Validation (Optional)** — MCP servers or additional CLI tools if available.
@@ -480,6 +510,14 @@ First draft your tasks as a flat list (mentally or in scratch) so you can see th
 - [ ] New patterns justified with clear rationale
 - [ ] No reinvention of existing patterns or utils
 - [ ] Testing approach matches project standards
+
+### Test Scope
+
+- [ ] Every planned test protects a rule with logic, a shared contract, or the one whole-app path — none checks script, doc or config text, test tooling, exact page wording, or library behavior
+- [ ] A new implementer of a shared contract is added to the contract's test set, not given a copied test file
+- [ ] Task VALIDATEs run scoped tests; the full suite runs once at final validation
+- [ ] No planned test waits on a real clock, and no planned production code has a test mode
+- [ ] Testing Strategy ends with a Not Tested list
 
 ### Cross-Phase Fit
 
