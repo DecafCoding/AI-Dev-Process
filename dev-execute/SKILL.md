@@ -132,7 +132,17 @@ After all tasks are complete, run the full validation suite specified in the pla
 
 **Live proof tests.** If the plan names a live proof test group for an outside service, run it once here. It makes one real call per service and saves the real answer as test data; then re-run the tests that replay that data, because a real answer can differ from what the code was written against — fix the code, never the saved answer. Never print, log or commit a key's value: check a variable by testing that it is non-empty and printing only its name. If a variable is not set, do not stop and do not invent a key — the service stays not proven. Return one `UNPROVEN: <service> — <variable> not set` line per such service in the Final Report, and one `PROVEN: <service> — live call on <date>` line per service that passed.
 
-Once the suite is green and every task in the phase is `done` (or `skipped`), set the phase's `<section class="phase">` to `data-status="complete"` in `docs/progress.html` (if the file exists). This must happen **before** the final commit so the merged `progress.html` on `<default-branch>` correctly tells the next run this phase is finished.
+**Acceptance criteria.** Green checks do not tick a criterion; its own proof does. For each `<li>` under the plan's Acceptance Criteria, read `data-proof` and set `data-checked="true"` in the phase doc only when that criterion's named proof ran in this run and passed:
+
+- `build` — the named command passed.
+- `target-copy` — the named command ran inside the target copy and passed. If the tool that starts the target copy is missing, the criterion stays open; do not run the check on the build machine in its place.
+- `user` — never tick it. Only the user can.
+- A check the plan labels `STAND-IN:` ticks nothing, whatever it shows.
+- No `data-proof` on a criterion — tick it only if a command in the plan proves that exact criterion; otherwise leave it open.
+
+Never reword a criterion and never remove one. For every criterion left open, return one line in the Final Report: `OPEN: phase <N> — <criterion> — <proof kind> — <why it is open, and what proves it>`. For an open criterion with `data-gate="true"`, return the plan's `GATE:` line verbatim as well. Open criteria do not block the merge: the phase is built, and the report says what is not proven.
+
+Once the suite is green and every task in the phase is `done` (or `skipped`), set the phase's `<section class="phase">` to `data-status="complete"` in `docs/progress.html` (if the file exists). `complete` there means every task is done; it does not mean every criterion is proven. This must happen **before** the final commit so the merged `progress.html` on `<default-branch>` correctly tells the next run this phase is finished.
 
 ## Step 8: Update README.md
 
@@ -159,7 +169,7 @@ Follow the project's `CLAUDE.md` conventions for commit messages and attribution
 
 **9.2 Open the PR** — If the plan's final task already opened a PR, reuse it. Otherwise:
 
-  gh pr create --base <default-branch> --title "Phase <N>: <phase title>" --body "<summary of tasks completed and validation results>"
+  gh pr create --base <default-branch> --title "Phase <N>: <phase title>" --body "<summary of tasks completed and validation results; the Acceptance Criteria with only proven boxes checked>"
 
 Follow the project's `CLAUDE.md` conventions for PR bodies and attribution exactly.
 
@@ -206,6 +216,7 @@ Provide a summary covering:
 - Which phase was executed and how it was selected (explicit argument vs. next eligible phase in `progress.html`)
 - Tasks completed
 - Validation results (pre-merge suite and the post-merge verification of `<default-branch>`)
+- Acceptance criteria: how many are proven, and every `OPEN:` and `GATE:` line verbatim (or "all proven")
 - Any deviations from the plan and why
 - `docs/progress.html` updates (tasks recorded / marked done, phase marked complete, or "none — file not present")
 - README.md updates (or "none — change was not user-facing")
