@@ -60,6 +60,10 @@ For each *planned* phase (phase doc exists), extract by parsing the HTML:
 | **Dependencies** | text content of `<dd data-field="dependencies">…</dd>` inside `<dl class="phase-meta">` |
 | **Tasks** | every `<h4 class="task" data-task="<X>">Task <X>: <name></h4>` heading, in document order. Ignore `<h3 class="milestone">` wrappers — milestones are organizational only and not tracked in `progress.html`. |
 
+| **Gates** | every `<li data-gate="true">` under `<h2>Acceptance Criteria</h2>`, in document order, with its `data-checked` value. A phase doc with none has no gates. |
+
+**Gate status**: a gate is `passed` when its `<li>` is `data-checked="true"` and `open` otherwise. Copy the criterion text verbatim. The phase doc owns this state; `progress.html` only shows it. So read it fresh on every run and never carry a gate status forward from an old `progress.html`.
+
 **Task description**: use the heading text after `Task <X>:` verbatim as the one-line description. Example: `<h4 class="task" data-task="3">Task 3: Add EF Core migration for FTS5</h4>` → `Task 3: Add EF Core migration for FTS5`.
 
 **Task numbering check**: tasks must be numbered contiguously starting at 1 within each phase (read from `data-task`). If you find a gap or a duplicate, stop and report the inconsistency — don't paper over it. The user needs to fix the phase doc.
@@ -98,6 +102,7 @@ Emit a standalone HTML document. The status attributes are the machine-readable 
 - Phase `<section>` carries `data-status`: `not-started` | `in-progress` | `complete` | `not-planned`.
 - Task `<li>` carries `data-status`: `todo` (eligible to pick up) | `done` (validation passed, committed) | `skipped` (a human set it; agent moves past it).
 - A blocker is a `<blockquote class="blocker">…</blockquote>` nested inside the task `<li>`; the agent will not retry the task until it is removed.
+- A gate is a `<li class="gate">` carrying `data-gate-status`: `open` | `passed`. It is a copy of the phase doc's gate criterion. `dev-orchestrate` flips it to `passed` only on the user's explicit yes, in the same commit as the phase doc.
 
 The routine's edits are in-place attribute/blockquote changes (`data-status="todo"` → `data-status="done"`, add/remove a blocker). `/dev-create-progress` preserves those edits across regeneration.
 
@@ -129,6 +134,10 @@ The routine's edits are in-place attribute/blockquote changes (`data-status="tod
     ul.tasks > li.task[data-status="done"]::before { content:"☑ "; color:var(--done); }
     ul.tasks > li.task[data-status="done"] { color:var(--muted); text-decoration:line-through; }
     ul.tasks > li.task[data-status="skipped"]::before { content:"⊘ "; color:var(--muted); }
+    ul.gates { list-style:none; padding-left:0; margin:.5rem 0 0; }
+    ul.gates > li.gate { padding:.15rem 0; font-weight:600; }
+    ul.gates > li.gate[data-gate-status="open"]::before { content:"⏸ Gate — waits for you: "; color:#c2410c; }
+    ul.gates > li.gate[data-gate-status="passed"]::before { content:"☑ Gate — passed: "; color:var(--done); }
     blockquote.blocker { border-left:3px solid var(--warn); background:#fef2f2; color:#7f1d1d; margin:.4rem 0 .4rem 1rem; padding:.4rem .75rem; }
     code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f6f8fa; padding:.1rem .3rem; border-radius:4px; }
   </style>
@@ -167,6 +176,13 @@ The routine's edits are in-place attribute/blockquote changes (`data-status="tod
   <li><code>blockquote.blocker</code> inside a task — blocked; agent will not retry until removed</li>
 </ul>
 
+<h2>Gates (<code>li.gate[data-gate-status]</code>)</h2>
+<ul>
+  <li><code>open</code> — a criterion only you can prove, that a later phase depends on. The build stops after this phase and waits for you.</li>
+  <li><code>passed</code> — you did the steps and said it passed.</li>
+</ul>
+<p>The steps for each gate are in the <code>GATE:</code> line of the phase doc's Notes. To pass a gate, do the steps and start the build again; it asks for the result. A phase can be <code>complete</code> while its gate is <code>open</code>.</p>
+
 <h2>How to resolve a blocker</h2>
 <p>The agent leaves a <code>&lt;blockquote class="blocker"&gt;</code> inside any task it couldn't finish. To unblock:</p>
 <ol>
@@ -192,6 +208,10 @@ The routine's edits are in-place attribute/blockquote changes (`data-status="tod
     <li class="task" data-task="2" data-status="todo">Task 2: <task heading from phase doc></li>
     <li class="task" data-task="N" data-status="todo">Task N: <task heading from phase doc></li>
   </ul>
+  <!-- Only when the phase doc holds a gate; omit the whole <ul> otherwise: -->
+  <ul class="gates">
+    <li class="gate" data-gate-status="open"><gate criterion text from phase doc></li>
+  </ul>
 </section>
 
 <!-- One <section> per unplanned phase (PRD lists it, no phase doc), interleaved in ascending order: -->
@@ -209,6 +229,7 @@ Notes on rendering:
 
 - The `data-status` on each `<section class="phase">` and the badge text: `not-started` if no tasks are done, `in-progress` if some but not all are done, `complete` if all are done. Only relevant when regenerating an existing `progress.html` — fresh files are always `not-started`.
 - Keep the badge text in sync with `data-status` (`not-started` → "not started", etc.). The `data-status` attribute is authoritative; the badge is cosmetic.
+- Gates go after the tasks, in phase doc order. A gate never changes the phase's `data-status`: a phase with every task done is `complete` even while its gate is `open`. A `not-planned` phase has no gate lines, because its gates are not known by phase until it is planned.
 - Don't emit an estimated-diff/LOC field — phase docs don't track LOC, and an inaccurate estimate is worse than no estimate.
 - Preserve the order of tasks as they appear in the phase doc (which is execution order — tasks run top to bottom).
 
@@ -220,6 +241,7 @@ Notes on rendering:
    - For each phase: `Phase <N>: <name> (slug: <slug>) — <task-count> tasks`.
    - Any phases listed in the PRD (if you can determine that — by reading `docs/prd.html` if it exists) but missing a phase doc, so the user knows what still needs `/dev-plan-phase`.
    - Any preserved `done` / `skipped` / blocker state (count is enough).
+   - Every gate, with its phase and `open` or `passed` (or "no gates").
    - Any tasks dropped during regeneration (so the user can confirm intentional deletion).
 
 ## Quality criteria
@@ -228,6 +250,7 @@ Notes on rendering:
 - [ ] Phase numbers and slugs come from filenames, never invented
 - [ ] Each phase is a `<section class="phase" data-phase="<N>" data-status="…">`
 - [ ] Each task is a `<li class="task" data-task="<X>" data-status="todo|done|skipped">`
+- [ ] Each gate in a phase doc is a `<li class="gate" data-gate-status="open|passed">` in that phase's section, with its status read from the phase doc
 - [ ] Branch names match `phase-<N>-<slug>` exactly
 - [ ] Task numbers are contiguous starting at 1 per phase, and match `data-task` in the phase doc
 - [ ] Existing completion state (`done`, `skipped`, `blockquote.blocker`) is preserved across regeneration, matched on phase number + task description text with the task number as fallback only — never lost, never moved onto a different task
