@@ -34,6 +34,15 @@ Review `docs/prd.html` to identify the phase's scope and dependencies before pla
 - Map affected systems and components
 - List the discrete features/work items the phase bundles, if more than one
 
+**Look forward — read the phases that come after this one:**
+
+You plan this phase after the earlier phases are built, so you can see the code behind you. You cannot see the code ahead of you unless you look. A phase planned only from what exists fits the first feature and is bent by every later one.
+
+- Read every later phase in `docs/prd.html`'s Implementation Phases section, not just this one.
+- For each later phase, ask: what does it need from the code this phase creates or changes? Think of interfaces it will implement, tables and fields it will read, config sections it will add, shared helpers it will call.
+- Shape this phase's work so those needs are met without a rewrite. This is not permission to build later features early — build nothing a later phase owns. It means the interface, table or config layout you create now must already have room for them.
+- Record each need in the phase doc's Notes as a `FORWARD:` line: `FORWARD: phase <M> needs <what> from <file or contract> — <how this plan leaves room for it>`. A phase with no later phases, or one whose work no later phase touches, records `FORWARD: none` with one line saying why.
+
 **Create or refine User Stories — one per feature in the phase:**
 
 ```
@@ -65,6 +74,16 @@ So that <benefit/value>
 - Extract common patterns for the phase's domain
 - Document anti-patterns to avoid
 - Check CLAUDE.md for project-specific rules and conventions
+- **Find second copies.** List every place where this phase would repeat logic an earlier feature already has — a helper, a query, a formatter, an error ladder, a template, a test fixture. Mirroring a *pattern* is fine; writing the same *logic* a second time is the trigger for the promotion task below. A third copy is never planned.
+
+**Promotion task (when a second copy appears):**
+
+When the list above is not empty, the plan includes a `REFACTOR` task that moves the repeated logic to the shared location and makes both features call it. Follow the promotion rule and the import direction rule in `docs/architecture.html`'s module layout; where the architecture names no promotion rule, promote at the second copy.
+
+- Place the task **before** the tasks that would have written the copy, so the new feature is built on the shared code rather than refactored after.
+- The task names the source file and lines being promoted, the shared destination, and both call sites. Its VALIDATE runs the earlier feature's existing tests — a promotion that breaks the first user is not done.
+- Promote only what is truly the same. Two things that look alike but answer to different rules stay apart; say so in Notes rather than forcing a shared abstraction with a flag per caller.
+- If the list is empty, write one line in Notes: `PROMOTION: none — no logic repeated from an earlier feature`.
 
 **3. Dependency Analysis**
 
@@ -159,6 +178,31 @@ The phase branch does not need to exist for planning — the autonomous routine 
 - A decision marked `data-status="open"` is not settled. Do not plan tasks that depend on it. In an interactive run, surface it to the user. **In an unattended run, return `ARCHITECTURE-MISFIT`** followed by the open slug, its `data-reversible` value, and one line on why the phase needs it — the same protocol as a misfit, because the orchestrator has no other way to hear you.
 - If the phase cannot be planned within the settled decisions, stop and **write no phase doc** — not a stub, not a partial, not a doc with the conflict noted in it. A half-written doc on disk reads as a real plan to every downstream check. Name the slugs that would have to change and their `data-reversible` values, and hand back to `dev-architecture` for an amendment. Do not plan around the architecture.
 - Tell the user which phase number is blocked, and that `dev-architecture` needs it named on the amendment's stale list — nothing on disk records a phase that was never written, so it is the one phase an amendment can silently skip.
+
+**Contract strain — report every bend, do not hide it:**
+
+A decision in `docs/architecture.html` marked `data-contract="true"` is a shared contract: a part that more than one phase uses. Between "the phase fits" and `ARCHITECTURE-MISFIT` there is a third case — the phase *can* be planned within the contract, but only by bending it. A bend that nobody reports is how a contract ends up with one special case per feature.
+
+The phase bends a contract when the plan needs any of these:
+
+- an operation the feature has no use for, implemented to return nothing;
+- a fake or placeholder record stored only to satisfy the contract;
+- shared code that checks which feature it is working for (a name check, a type check, a per-feature branch);
+- an extra optional interface that only this feature implements;
+- a change to the contract's signature, fields or states;
+- a field that carries a different meaning for this feature than the contract gives it.
+
+For each bend, write a `CONTRACT-STRAIN:` line in Notes and return it verbatim in your report:
+
+```
+CONTRACT-STRAIN: <data-decision slug> — <what does not fit> — <the workaround this plan uses>
+```
+
+- Strain is **not a stop**. Plan the phase with the smallest workaround, record the line, and continue. `dev-orchestrate` counts the lines and stops the run when one contract collects a second one.
+- Before writing a new line, read earlier phase docs' Notes for `CONTRACT-STRAIN:` lines on the same slug and cite them (`— also strained in phase <M>`). The count is what tells the user the contract is wrong rather than the feature.
+- Do not downgrade a misfit to a strain. If the only workaround contradicts a settled decision, or would need the contract rewritten for the features already built, that is `ARCHITECTURE-MISFIT`.
+- If the phase touches a shared contract and bends none, write `CONTRACT-STRAIN: none` so the absence is a checked fact and not an omission.
+- Where `docs/architecture.html` marks no decision with `data-contract="true"`, apply the same test to any interface, file format or table that more than one phase uses, and name it by file path in place of the slug.
 
 **PRD Validation (if PRD exists):**
 - Read PRD at `docs/prd.html`
@@ -266,7 +310,7 @@ Fill the `<body>` with the following, using the required shapes above. The HTML 
 
 12. **`<h2>Completion Checklist</h2>`** — a `<ul class="checklist">` mirroring the per-level validation.
 
-13. **`<h2>Notes</h2>`** — design decisions, trade-offs, and any assumptions made when ambiguities were resolved with defaults rather than user clarification.
+13. **`<h2>Notes</h2>`** — design decisions, trade-offs, and any assumptions made when ambiguities were resolved with defaults rather than user clarification. Notes always carry three line types, each on its own line so later phases and `dev-orchestrate` can find them by prefix: `FORWARD:` (Step 1), `PROMOTION:` (Step 2) and `CONTRACT-STRAIN:` (Step 4).
 
 ### Implementation Plan rules
 
@@ -437,6 +481,12 @@ First draft your tasks as a flat list (mentally or in scratch) so you can see th
 - [ ] No reinvention of existing patterns or utils
 - [ ] Testing approach matches project standards
 
+### Cross-Phase Fit
+
+- [ ] Every later PRD phase was read, and Notes hold a `FORWARD:` line for each need (or `FORWARD: none` with a reason)
+- [ ] Logic an earlier feature already has is promoted by a `REFACTOR` task placed before its second use, or Notes hold `PROMOTION: none`
+- [ ] Every bend of a shared contract has a `CONTRACT-STRAIN:` line citing earlier strain on the same slug, or Notes hold `CONTRACT-STRAIN: none`
+
 ### Information Density
 
 - [ ] No generic references (all specific and actionable)
@@ -461,3 +511,4 @@ After creating the plan, provide:
 - Complexity assessment
 - Key implementation risks or considerations
 - Whether tasks are grouped under milestones or rendered flat, and why
+- Every `CONTRACT-STRAIN:` line, verbatim, and what the promotion task moves (or that there is none)
