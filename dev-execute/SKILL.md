@@ -130,6 +130,8 @@ Only one task should be `in_progress` at a time.
 
 After all tasks are complete, run the full validation suite specified in the plan (typically lint → tests → build). If anything fails, reopen the relevant task (`in_progress`), fix it, and re-validate.
 
+**Live proof tests.** If the plan names a live proof test group for an outside service, run it once here. It makes one real call per service and saves the real answer as test data; then re-run the tests that replay that data, because a real answer can differ from what the code was written against — fix the code, never the saved answer. Never print, log or commit a key's value: check a variable by testing that it is non-empty and printing only its name. If a variable is not set, do not stop and do not invent a key — the service stays not proven. Return one `UNPROVEN: <service> — <variable> not set` line per such service in the Final Report, and one `PROVEN: <service> — live call on <date>` line per service that passed.
+
 Once the suite is green and every task in the phase is `done` (or `skipped`), set the phase's `<section class="phase">` to `data-status="complete"` in `docs/progress.html` (if the file exists). This must happen **before** the final commit so the merged `progress.html` on `<default-branch>` correctly tells the next run this phase is finished.
 
 ## Step 8: Update README.md

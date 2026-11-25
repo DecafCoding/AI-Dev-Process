@@ -312,7 +312,7 @@ Fill the `<body>` with the following, using the required shapes above. The HTML 
 
 12. **`<h2>Completion Checklist</h2>`** — a `<ul class="checklist">` mirroring the per-level validation.
 
-13. **`<h2>Notes</h2>`** — design decisions, trade-offs, and any assumptions made when ambiguities were resolved with defaults rather than user clarification. Notes always carry three line types, each on its own line so later phases and `dev-orchestrate` can find them by prefix: `FORWARD:` (Step 1), `PROMOTION:` (Step 2) and `CONTRACT-STRAIN:` (Step 4).
+13. **`<h2>Notes</h2>`** — design decisions, trade-offs, and any assumptions made when ambiguities were resolved with defaults rather than user clarification. Notes always carry three line types, each on its own line so later phases and `dev-orchestrate` can find them by prefix: `FORWARD:` (Step 1), `PROMOTION:` (Step 2) and `CONTRACT-STRAIN:` (Step 4). A phase that calls an outside service it could not prove also carries `UNPROVEN:` lines (Test Scope).
 
 ### Implementation Plan rules
 
@@ -399,6 +399,17 @@ A VALIDATE on every task does not mean a new test file on every task. Left ungui
 **Run by change.** A task's VALIDATE runs the lint/type check plus the tests of the feature folder the task touched, using the scoped command from the test policy. The full suite runs once, at final validation, not after every task. A task that changes shared code runs the tests of that shared module and of the contract test set.
 
 **Keep it fast.** No test waits on a real clock; tests set an injected clock. If the phase's new tests would push the full suite past the policy's time limit, that is a planning defect — say so in Notes and plan the fix (usually removing real waits), do not raise the limit.
+
+**Prove each outside service once, then use what it really said.** Read the `outside-services` and `secrets` decisions in `docs/architecture.html`. For every outside service this phase is the first to call:
+
+- Plan one **live proof test** as part of the task that creates the service's wrapper. It reads the key and endpoint from the environment variables the architecture names, makes the architecture's proof call through the wrapper, and asserts the *shape* of the answer — status, required fields, types. For a model call, never assert the words; they change on every call.
+- The live proof test **saves the real answer** to the test data folder, with every key, token and account identifier removed, and with a marker recording that it came from a live call and on what date. Every other test of that service replays the saved answer and makes no live call.
+- Put live proof tests in their own group (a marker, tag or folder — whatever the project's test tool offers) that the scoped and full-suite commands leave out. Give the command that runs the group in Validation Commands. It runs once, at final validation, and again only when a task changes that wrapper.
+- **A missing variable is never a silent pass and never a failure.** The live proof test reports the service as not proven and names the missing variable. The plan then allows hand-written test data for that service so the phase can still be built, on two conditions: the file is marked as invented, and Notes carry `UNPROVEN: <service> — <variable> not set — tests use invented answers`.
+- No test, VALIDATE command or log line prints a key's value. To check a variable, test that it is non-empty and print only its name.
+- Do not plan a key into any file inside the repo — not a config file, not a `.env`, not test data. A file listing variable names with no values is fine.
+
+Where the architecture has no `outside-services` decision, apply the same rules to every network service the phase calls, choose the cheapest call that proves the answer's shape, and record the variable names you chose as an `ASSUMPTION:`.
 
 **Keep test code out of production.** Fake services, saved answers and test clocks live in the test folders. Do not plan an environment variable or mode that makes production code behave differently under test. Do not plan a check tool that runs outside the project's one check command.
 
@@ -518,6 +529,9 @@ First draft your tasks as a flat list (mentally or in scratch) so you can see th
 - [ ] Task VALIDATEs run scoped tests; the full suite runs once at final validation
 - [ ] No planned test waits on a real clock, and no planned production code has a test mode
 - [ ] Testing Strategy ends with a Not Tested list
+- [ ] Every outside service first called in this phase has one live proof test that saves the real answer; all its other tests replay that answer
+- [ ] Hand-written test data for an outside service is marked as invented and has an `UNPROVEN:` line in Notes
+- [ ] No key value is planned into any repo file, and no planned command or test prints one
 
 ### Cross-Phase Fit
 

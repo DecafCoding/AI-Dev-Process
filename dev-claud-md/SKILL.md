@@ -200,7 +200,11 @@ open a fresh scope with `IServiceScopeFactory` instead.}
 
 {Where settings live, how they bind to typed options, and the secrets rule: non-secret defaults
 ship in source, secrets are blank in source and supplied via the stack's secret mechanism.
-Include the exact command to set a secret and the env-var equivalent.}
+Include the exact command to set a secret and the env-var equivalent. When
+`docs/architecture.html` has `secrets` and `outside-services` decisions, copy their rules and
+the exact variable names from them: where a key lives, that a key never lives inside the repo
+folder (an ignored `.env` included), and that no code, test, log or command prints a key's
+value.}
 
 ## Authentication
 
@@ -213,7 +217,7 @@ Include the exact command to set a secret and the env-var equivalent.}
 - {Logging rule — a logger per class; never write directly to stdout.}
 - {Config rule — typed options only, no scattered environment lookups.}
 - {A brief doc comment atop every file/class.}
-- **No secrets in source or committed config.**
+- **No secrets in source, in committed config, or in any file inside the repo folder.** Never print a key's value.
 
 ## Testing
 
@@ -256,7 +260,7 @@ Every profile emits the same sections; only the specifics change.
 - **Migrations:** Alembic (`alembic revision --autogenerate`, `alembic upgrade head`) or the ORM's equivalent.
 - **Architecture:** package layout and the import-direction rule (which layers may import which).
 - **Wiring:** how dependencies are provided — FastAPI `Depends`, a container, or plain construction — and any request-scoped session rules.
-- **Config:** `pydantic-settings` or equivalent, `.env` and `.env.example`, secrets never committed.
+- **Config:** `pydantic-settings` or equivalent reading environment variables; a `.env.example` with names only; no `.env` inside the repo folder.
 - **Conventions:** async boundaries, type hints required, module-level `logging.getLogger(__name__)`, never `print`.
 
 ### Node / TypeScript
@@ -264,7 +268,7 @@ Every profile emits the same sections; only the specifics change.
 - **Build & Test:** the package manager actually in use (`npm`/`pnpm`/`yarn` — check the lockfile), plus `build`, `test`, `lint`, `typecheck` scripts from `package.json`.
 - **Migrations:** Prisma, Drizzle, or TypeORM commands as applicable.
 - **Architecture:** module/route structure, server/client boundary for full-stack frameworks, and `strict` TypeScript expectations.
-- **Config:** typed env parsing (zod/envalid), `.env.example`, and which vars are client-exposed.
+- **Config:** typed env parsing (zod/envalid), a `.env.example` with names only, no `.env` inside the repo folder, and which vars are client-exposed.
 - **Conventions:** no `any` without justification, structured logging over `console.log`, error-handling boundary.
 
 ### Go / Rust / Other
