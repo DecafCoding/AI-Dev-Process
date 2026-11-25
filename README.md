@@ -112,6 +112,14 @@ output before it runs the next one, and it stops on a failed check. It usually
 asks nothing. It ends with one report and points to `dev-orchestrate`.
 *Outputs: `docs/prd.html`, `CLAUDE.md`, `docs/progress.html`.*
 
+## Helper: ship changes by hand
+
+**[`dev-ship`](dev-ship/SKILL.md)** ships every change that is not yet on the
+default branch: branch, commit, push, merge, and return to an updated default
+branch. It merges locally, so every commit and the merge commit carry only your
+name. Use it for work outside the phase loop. `dev-execute` ships each phase
+itself. The optional argument `keep` keeps the remote branch.
+
 ## Core principles
 
 - **No code before the plan.** The interview, design, and planning skills never
