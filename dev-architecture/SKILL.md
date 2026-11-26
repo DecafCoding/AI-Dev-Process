@@ -40,6 +40,17 @@ Ask once, with a recommendation, and take the answer:
 
 If the user says more features are coming first, stop. Point them at `dev-add-feature`. Do not design against scope that is still changing. Do not start with the easy branches. Later features often move those branches.
 
+**Then check for the design.** Do this check on a fresh run only. A design that arrives after the architecture can move a screen into scope or change what a screen needs. That forces an amendment.
+
+- **The plan has no screens.** Examples are a command-line tool and a service with no pages. Skip this check. Ask nothing.
+- **The plan has screens and `docs/design-system.html` exists.** Go on. Ask nothing.
+- **The plan has screens and `docs/design-system.html` does not exist.** Ask once, with a recommendation, and take the answer:
+
+> **Design check:** the plan has 4 screens and there is no design yet. Do the mockups first?
+> *Recommend yes.* A design often adds a screen or a state that changes the boundaries. It is cheaper to know that now than to amend the architecture later.
+
+If the user says yes, stop. Point them at `dev-handoff`, which assembles the design bundle, and then at `dev-ui-update`. If the user says continue, go on. Add an Open questions entry. It says that the design is not done, and that a later handoff can force an amendment of the decisions that the screens touch.
+
 **Also read these files when they are present:**
 
 - `docs/mvp-plan.html` → Constraints → **Open architecture inputs**. This is your starting agenda, in the user's own words. Branch 1 works through it.
